@@ -5,8 +5,8 @@
 
 import redis
 import os
+import yaml
 from kombu import Queue, Exchange
-from kombu.common import Broadcast
 
 DEBUG = True
 
@@ -79,7 +79,7 @@ CARTO_HOME='/hs_tmp/node_modules/carto'
 
 
 USE_SOUTH = False
-SITE_TITLE = "HydroShare"
+SITE_TITLE = "CUAHSI HydroShare"
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
@@ -127,6 +127,8 @@ REMOTE_USE_IRODS = True
 IRODS_BAGIT_RULE='hydroshare/irods/ruleGenerateBagIt_HS.r'
 IRODS_BAGIT_PATH = 'bags'
 IRODS_BAGIT_POSTFIX = 'zip'
+
+IRODS_SERVICE_ACCOUNT_USERNAME = ''
 
 HS_BAGIT_README_FILE_WITH_PATH = 'docs/bagit/readme.txt'
 
@@ -180,3 +182,27 @@ DEFAULT_SUPPORT_EMAIL= 'support@hydroshare.org'
 
 HYDROSHARE_SHARED_TEMP = '/shared_tmp'
 
+TIME_ZONE = "Etc/UTC"
+
+#used by the mailchimp subscription job in hs_core/tasks.py
+MAILCHIMP_ACTIVE_SUBSCRIBERS = "e210a70864"
+MAILCHIMP_SUBSCRIBERS = "f0c27254e3"
+
+# sendfile support for large files
+# These must match settings in nginx
+SENDFILE_ON = False
+IRODS_USER_URI = "/irods-user"
+IRODS_DATA_URI = "/irods-data"
+LOCAL_CACHE_URI = "/local-cache"
+
+RECAPTCHA_SITE_KEY="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+RECAPTCHA_SECRET_KEY="6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
+RECAPTCHA_VERIFY_URL='https://www.google.com/recaptcha/api/siteverify'
+
+with open(os.path.dirname(os.path.abspath(__file__))  + "/../config/hydroshare-config.yaml", 'r') as stream:
+    try:
+        EXTERNAL_CONFIG = yaml.load(stream)
+    except yaml.YAMLError as exc:
+        print(exc)
+# insert a google maps key here when in production
+MAPS_KEY=''
