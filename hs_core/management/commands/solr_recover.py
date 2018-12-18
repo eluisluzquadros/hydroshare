@@ -7,7 +7,9 @@ from django.core.management.base import BaseCommand
 from hs_core.models import BaseResource
 from hs_core.hydroshare.utils import get_resource_by_shortkey
 from haystack import connection_router, connections
+from haystack.query import SearchQuerySet
 from haystack.exceptions import NotHandled
+from pysolr import SolrError
 import logging
 
 
@@ -16,6 +18,22 @@ def has_subfolders(resource):
         if '/' in f.short_path:
             return True
     return False
+
+
+def vacuum_solr():
+    """ Delete SOLR entries for resources that no longer exist """
+    ids = list(SearchQuerySet().all().values_list('id', flat=True))
+    for id in ids:
+        fields = id.split('.')
+        number = int(fields[len(fields)-1])
+        result = BaseResource.objects.filter(id=number)
+        if not result:
+            print("did not find resource {} in Django: deleting from SOLR".format(id))
+            for backend in connections:
+                try:
+                    backend.remove(id)
+                except (IOError, SolrError) as e:
+                    print("Failure: delete of %s with id %s failed: %s.", id,  e)
 
 
 def repair_solr(short_id):
@@ -99,6 +117,13 @@ class Command(BaseCommand):
             help='limit to resources with subfolders',
         )
 
+        parser.add_argument(
+            '--vacuum',
+            action='store_true',  # True for presence, False for absence
+            dest='vacuum',  # value is options['vacuum']
+            help='remove resources in SOLR that are not in Django',
+        )
+
     def repair_filtered_solr(self, resource, options):
         if (options['type'] is None or resource.resource_type == options['type']) and \
            (options['storage'] is None or resource.storage_type == options['storage']) and \
@@ -113,7 +138,9 @@ class Command(BaseCommand):
                 print("{} does not exist in iRODS".format(resource.short_id))
 
     def handle(self, *args, **options):
-        if len(options['resource_ids']) > 0:  # an array of resource short_id to check.
+        if options['vacuum']:
+            vacuum_solr()
+        elif len(options['resource_ids']) > 0:  # an array of resource short_id to check.
             for rid in options['resource_ids']:
                 resource = get_resource_by_shortkey(rid)
                 self.repair_filtered_solr(resource, options)
