@@ -199,7 +199,7 @@ def get_logical_file_type(res, user, file_id, hs_file_type=None, folder_path=Non
                        ".nc": "NetCDF", ".shp": "GeoFeature", ".json": "RefTimeseries",
                        ".sqlite": "TimeSeries"}
         # TODO: this code crashes on UniCode file names 
-        file_name = str(res_file)
+        file_name = unicode(res_file)
         root, ext = os.path.splitext(file_name)
         ext = ext.lower()
         if ext in ext_to_type:

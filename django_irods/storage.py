@@ -289,7 +289,7 @@ class IrodsStorage(Storage):
             if stdout[i][:len(directory_prefix)] == directory_prefix:
                 dirname = stdout[i][len(directory_prefix):].strip()
                 if dirname:
-                    listing[0].append(dirname)
+                    listing[0].append(dirname.decode('utf-8'))
                     listing[2].append("-1")
             else:
                 # don't use split for filename to preserve spaces in filename
@@ -305,7 +305,7 @@ class IrodsStorage(Storage):
                 filename = stdout[i].split(sep)[1].strip()
                 size = line[3]
                 if filename:
-                    listing[1].append(filename)
+                    listing[1].append(filename.decode('utf-8'))
                     listing[2].append(size)
         return listing
 

@@ -286,7 +286,7 @@ def __check_irods_directory(resource, dir, logger, options,
         listing = istorage.listdir(dir)
         for fname in listing[1]:  # files
             # do not use os.path.join because fname might contain unicode characters
-            fullpath = dir.decode('utf-8') + u'/' + fname.decode('utf-8')
+            fullpath = os.path.join(dir, fname.decode('utf-8'))
             found = False
             for f in resource.files.all():
                 if f.storage_path == fullpath:
@@ -309,7 +309,7 @@ def __check_irods_directory(resource, dir, logger, options,
 
         for dname in listing[0]:  # directories
             # do not use os.path.join because paths might contain unicode characters!
-            error2, ecount2 = __check_irods_directory(resource, dir + '/' + dname,
+            error2, ecount2 = __check_irods_directory(resource, os.path.join(dir, dname),
                                                       logger, options,
                                                       return_errors=return_errors,
                                                       clean=clean)
@@ -383,7 +383,7 @@ def __ingest_irods_directory(resource,
         listing = istorage.listdir(dir)
         for fname in listing[1]:  # files
             # do not use os.path.join because fname might contain unicode characters
-            fullpath = dir + '/' + fname
+            fullpath = os.path.join(dir, fname)
             found = False
             for res_file in resource.files.all():
                 if res_file.storage_path == fullpath:
@@ -463,7 +463,7 @@ def __ingest_irods_directory(resource,
         for dname in listing[0]:  # directories
             # do not use os.path.join because fname might contain unicode characters
             error2, ecount2 = __ingest_irods_directory(resource,
-                                                       dir + '/' + dname,
+                                                       os.path.join(dir, dname),
                                                        logger,
                                                        options,
                                                        return_errors=return_errors)
