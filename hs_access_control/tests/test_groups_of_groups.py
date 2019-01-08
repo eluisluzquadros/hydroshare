@@ -76,14 +76,16 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
 
         # share a group with a group
         # sharing "arfers" with "meowers" means that "meowers" is a member of "arfers" 
+        # dog must own "arfers" and must have access to "meowers"
+
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.VIEW)
 
         # privilege object created
-        ggp = GroupGroupPrivilege.objects.get(group_h=self.arfers, group_g=self.meowers)
+        ggp = GroupGroupPrivilege.objects.get(group_s=self.arfers, group_w=self.meowers)
         self.assertEqual(ggp.privilege, PrivilegeCodes.VIEW)
 
         # provenance object created
-        ggp = GroupGroupProvenance.objects.get(group_h=self.arfers, group_g=self.meowers)
+        ggp = GroupGroupProvenance.objects.get(group_s=self.arfers, group_w=self.meowers)
         self.assertEqual(ggp.privilege, PrivilegeCodes.VIEW)
 
         # Group.gaccess.get_effective_privilege is polymorphic
@@ -115,11 +117,11 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.CHANGE)
 
         # privilege object created
-        ggp = GroupGroupPrivilege.objects.get(group_h=self.arfers, group_g=self.meowers)
+        ggp = GroupGroupPrivilege.objects.get(group_s=self.arfers, group_w=self.meowers)
         self.assertEqual(ggp.privilege, PrivilegeCodes.CHANGE)
 
         # provenance object created
-        ggp = GroupGroupProvenance.objects.filter(group_h=self.arfers, group_g=self.meowers)
+        ggp = GroupGroupProvenance.objects.filter(group_s=self.arfers, group_w=self.meowers)
         self.assertEqual(ggp.count(), 2)
 
         # Group.gaccess.get_effective_privilege is polymorphic
@@ -152,3 +154,4 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
                          PrivilegeCodes.CHANGE)
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
+
