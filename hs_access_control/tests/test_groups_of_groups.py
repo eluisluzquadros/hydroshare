@@ -11,8 +11,6 @@ from hs_core.testing import MockIRODSTestCaseMixin
 
 from hs_access_control.tests.utilities import global_reset, is_equal_to_as_set
 
-from pprint import pprint
-
 
 class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
 
@@ -65,17 +63,17 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         " share group with group, in allowed direction "
 
         # first check permissions
-        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers,
                                                                     PrivilegeCodes.VIEW))
-        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers,
                                                                     PrivilegeCodes.CHANGE))
-        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers, 
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers,
                                                                     PrivilegeCodes.VIEW))
-        self.assertFalse(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers, 
+        self.assertFalse(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers,
                                                                      PrivilegeCodes.CHANGE))
 
         # share a group with a group
-        # sharing "arfers" with "meowers" means that "meowers" is a member of "arfers" 
+        # sharing "arfers" with "meowers" means that "meowers" is a member of "arfers"
         # dog must own "arfers" and must have access to "meowers"
 
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.VIEW)
@@ -101,11 +99,11 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         # TODO: next code cascading privilege in access control:
         # groupA is a member of groupB and groupB has access means groupA has access.
 
-        self.assertFalse(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+        self.assertFalse(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers,
                                                                      PrivilegeCodes.OWNER))
-        with self.assertRaises(PermissionDenied): 
-             self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, 
-                                                     PrivilegeCodes.OWNER)
+        with self.assertRaises(PermissionDenied):
+            self.dog.uaccess.share_group_with_group(self.arfers, self.meowers,
+                                                    PrivilegeCodes.OWNER)
 
         # Privileges are unchanged by the previous act
         self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
@@ -113,7 +111,7 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
 
-        # upgrade share privilege 
+        # upgrade share privilege
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.CHANGE)
 
         # privilege object created
@@ -131,7 +129,7 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
 
-        # unshare group with group 
+        # unshare group with group
         self.assertTrue(self.dog.uaccess.can_unshare_group_with_group(self.arfers, self.meowers))
         self.dog.uaccess.unshare_group_with_group(self.arfers, self.meowers)
 
@@ -142,16 +140,23 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
 
-
     def test_01_undo_group_with_group(self):
         " share group with group with undo "
-        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers,
                                                                     PrivilegeCodes.CHANGE))
-        self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, 
+        self.dog.uaccess.share_group_with_group(self.arfers, self.meowers,
                                                     PrivilegeCodes.CHANGE)
-        
+
         self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
                          PrivilegeCodes.CHANGE)
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
 
+        self.assertTrue(self.dog.uaccess.can_undo_share_group_with_group(self.arfers, self.meowers))
+
+        self.dog.uaccess.undo_share_group_with_group(self.arfers, self.meowers)
+
+        self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
+                         PrivilegeCodes.NONE)
+        self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
+                         PrivilegeCodes.NONE)
