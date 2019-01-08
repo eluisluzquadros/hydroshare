@@ -67,8 +67,12 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         # first check permissions
         self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
                                                                     PrivilegeCodes.VIEW))
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+                                                                    PrivilegeCodes.CHANGE))
         self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers, 
                                                                     PrivilegeCodes.VIEW))
+        self.assertFalse(self.dog.uaccess.can_share_group_with_group(self.meowers, self.arfers, 
+                                                                     PrivilegeCodes.CHANGE))
 
         # share a group with a group
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.VIEW)
@@ -96,3 +100,51 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         with self.assertRaises(PermissionDenied): 
              self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, 
                                                      PrivilegeCodes.OWNER)
+
+        # Privileges are unchanged by the previous act
+        self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
+                         PrivilegeCodes.VIEW)
+        self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
+                         PrivilegeCodes.NONE)
+
+        # upgrade share privilege 
+        self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.CHANGE)
+
+        # privilege object created
+        ggp = GroupGroupPrivilege.objects.get(group_h=self.arfers, group_g=self.meowers)
+        self.assertEqual(ggp.privilege, PrivilegeCodes.CHANGE)
+
+        # provenance object created
+        ggp = GroupGroupProvenance.objects.filter(group_h=self.arfers, group_g=self.meowers)
+        self.assertEqual(ggp.count(), 2)
+
+        # Group.gaccess.get_effective_privilege is polymorphic
+        # and handles both user and group privilege now
+        self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
+                         PrivilegeCodes.CHANGE)
+        self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
+                         PrivilegeCodes.NONE)
+
+        # unshare group with group 
+        self.assertTrue(self.dog.uaccess.can_unshare_group_with_group(self.arfers, self.meowers))
+        self.dog.uaccess.unshare_group_with_group(self.arfers, self.meowers)
+
+        # Group.gaccess.get_effective_privilege is polymorphic
+        # and handles both user and group privilege now
+        self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
+                         PrivilegeCodes.NONE)
+        self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
+                         PrivilegeCodes.NONE)
+
+
+    def test_01_undo_group_with_group(self):
+        " share group with group with undo "
+        self.assertTrue(self.dog.uaccess.can_share_group_with_group(self.arfers, self.meowers, 
+                                                                    PrivilegeCodes.CHANGE))
+        self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, 
+                                                    PrivilegeCodes.CHANGE)
+        
+        self.assertEqual(self.arfers.gaccess.get_effective_privilege(self.meowers),
+                         PrivilegeCodes.CHANGE)
+        self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
+                         PrivilegeCodes.NONE)

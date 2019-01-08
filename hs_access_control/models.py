@@ -4,9 +4,10 @@ Access control classes for hydroshare.
 This module implements access control for hydroshare.  Privilege models act on users,
 groups, and resources, and determine what objects are accessible to which users.  These models:
 
-* determine three kinds of privilege
+* determine four kinds of privilege
 
    1) user membership in and privilege over groups.
+   1) group membership in and privilege over groups.
    2) user privilege over resources.
    3) group privilege over resources.
 
@@ -436,8 +437,8 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group: target group.
-        :param user: target user.
+        :param group_h: source group to share 
+        :param group_g: target group with which to share 
         :param privilege: privilege 1-4.
         :param grantor: user who requested privilege.
 
@@ -466,8 +467,8 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group: target group.
-        :param user: target user.
+        :param group_h: source group to share 
+        :param group_g: target group with which to share 
         :param grantor: user who requested privilege.
 
         Usage:
@@ -480,9 +481,9 @@ class GroupGroupPrivilege(PrivilegeBase):
         deletion.
         """
         if __debug__:
-            assert 'group' in kwargs
+            assert 'group_g' in kwargs
             assert isinstance(kwargs['group_g'], Group)
-            assert 'user' in kwargs
+            assert 'group_h' in kwargs
             assert isinstance(kwargs['group_h'], Group)
             assert 'grantor' in kwargs
             assert isinstance(kwargs['grantor'], User)
@@ -497,8 +498,8 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group: target group.
-        :param user: target user.
+        :param group_h: source group to undo 
+        :param group_g: target group with which to undo share
         :param grantor: user who requested privilege.
 
         Usage:
@@ -535,15 +536,14 @@ class GroupGroupPrivilege(PrivilegeBase):
 
     @classmethod
     def get_undo_groups(cls, **kwargs):
-        """ Get a set of users for which a grantor can undo privilege
+        """ Get a set of groups for which a grantor can undo privilege
 
-        :param group: group to check
+        :param group_h: group to check
         :param grantor: user that will undo privilege
 
         Important: this does not guard against removing a single owner.
 
         **This is a system routine** that should not be called directly by developers!
-        Use UserAccess.__get_group_undo_users instead. That routine avoids single-owner deletion.
         """
         if __debug__:
             assert 'group_h' in kwargs
@@ -928,7 +928,8 @@ class ProvenanceBase(models.Model):
         Usage:
             UserResourceProvenance.get_privilege(resource={X}, user={Y})
             UserGroupProvenance.get_privilege(group={X}, user={Y})
-            GroupResourceProvenance.get_privilege(resource={X}, group={Y})
+            GroupGroupProvenance.get_privilege(resource={X}, group={Y})
+            GroupResourceProvenance.get_privilege(resource={X}, group_h={Y})
         """
         if __debug__:
             assert len(kwargs) == 2
@@ -950,6 +951,7 @@ class ProvenanceBase(models.Model):
         Usage:
             UserResourceProvenance.update(resource={X}, user={Y}, privilege={Z}, ...)
             UserGroupProvenance.update(group={X}, user={Y}, privilege={Z}, ...)
+            GroupGroupProvenance.update(resource={X}, group_h={Y}, privilege={Z}, ...)
             GroupResourceProvenance.update(resource={X}, group={Y}, privilege={Z}, ...)
         """
         cls.objects.create(**kwargs)
@@ -1258,7 +1260,7 @@ class GroupGroupProvenance(ProvenanceBase):
                                 null=False,
                                 editable=False,
                                 related_name='g2ghq',
-                                help_text='user to be granted privilege')
+                                help_text='group to be granted privilege')
 
     group_h = models.ForeignKey(Group,
                                 null=False,
@@ -1317,6 +1319,10 @@ class GroupGroupProvenance(ProvenanceBase):
     def update(cls, group_h, group_g, privilege, grantor, undone=False):
         """
         Add a provenance record to the provenance chain.
+
+        :param group_h: shared group
+        :param group_g: group with which group_h is shared. 
+        :param grantor: user that would initiate the rollback.
 
         This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
         """
@@ -2061,19 +2067,20 @@ class UserAccess(models.Model):
             if group_g is not None:
                 assert isinstance(group_g, Group)
 
-        # # these checks should not be caught by this routine
-        # if not self.user.is_active:
-        #     raise PermissionDenied("Requesting user is not active")
-        # if not this_group.gaccess.active:
-        #     raise PermissionDenied("Group is not active")
-        # if user is not None:
-        #     if not user.is_active:
-        #         raise PermissionDenied("Grantee user is not active")
-        # elif group_g is not None:
-        #     if not group_g.gaccess.active:
-        #         raise PermissionDenied("Group is not active")
-        #     if this_privilege == PrivilegeCodes.OWNER: 
-        #         raise PermissionDenied("Groups cannot own groups")
+        # TODO: these checks should not be caught by this routine
+        # TODO: as they are caught above this level. 
+        if not self.user.is_active:
+            raise PermissionDenied("Requesting user is not active")
+        if not this_group.gaccess.active:
+            raise PermissionDenied("Group is not active")
+        if user is not None:
+            if not user.is_active:
+                raise PermissionDenied("Grantee user is not active")
+        elif group_g is not None:
+            if not group_g.gaccess.active:
+                raise PermissionDenied("Group is not active")
+            if this_privilege == PrivilegeCodes.OWNER: 
+                raise PermissionDenied("Groups cannot own groups")
 
         try: 
             self.__check_share_group(this_group, this_privilege, user=user, group_g=group_g)
@@ -2088,8 +2095,8 @@ class UserAccess(models.Model):
 
         :param this_group: group to check
         :param this_privilege: privilege to assign
-        :param user: user with which to share. 
-        :param group_g: group with which to share. 
+        :param user: (optional) user with which to share. 
+        :param group_g: (optional) group with which to share. 
         :return: True if sharing is possible, otherwise raise an exception.
 
         This determines whether the current user can share a group, independent of
@@ -2119,9 +2126,12 @@ class UserAccess(models.Model):
         else: 
             grantee_priv = PrivilegeCodes.NONE
 
+        if group_g is not None and this_privilege == PrivilegeCodes.OWNER:
+            raise PermissionDenied("Groups cannot own objects")
+
         # check for user authorization
         if self.user.is_superuser:
-            pass  # admin can do anything
+            pass # admins can do anything
 
         elif grantor_priv == PrivilegeCodes.OWNER:
             pass  # owner can do anything
@@ -2142,6 +2152,7 @@ class UserAccess(models.Model):
                     raise PermissionDenied("Non-owners cannot decrease privileges for others")
 
             if group_g is not None:
+                print("checking group {} for appropriate sharing (privilege={})".format(group_g, this_privilege) )
                 # only owners of the original group can share a group with a group
                 if not self.user.uaccess.owns_group(group_g):
                     raise PermissionDenied("User must own the group to be shared")
@@ -2464,7 +2475,11 @@ class UserAccess(models.Model):
         If this returns False, UserAccess.share_group_with_group will raise an exception
         for the corresponding arguments -- *guaranteed*.
         """
-        return self.can_share_group(this_group_h, this_privilege, group_g=this_group_g)
+        try: 
+            self.__check_share_group_with_group(this_group_h, this_group_g, this_privilege)
+            return True
+        except PermissionDenied: 
+            return False
 
     def __check_share_group_with_group(self, this_group_h, this_group_g, this_privilege):
         """
@@ -2526,7 +2541,7 @@ class UserAccess(models.Model):
             raise PermissionDenied("Group with which to share is not active")
 
         # raise a PermissionDenied exception if user self is not allowed to do this.
-        self.__check_share_group_with_user(this_group_h, this_group_g, this_privilege)
+        self.__check_share_group_with_group(this_group_h, this_group_g, this_privilege)
 
         GroupGroupPrivilege.share(group_h=this_group_h, group_g=this_group_g,
                                   grantor=self.user, privilege=this_privilege)
@@ -2574,7 +2589,7 @@ class UserAccess(models.Model):
         if not this_group_h.gaccess.active:
             raise PermissionDenied("Affected Group is not active")
 
-        self.__check_unshare_group_with_user(this_group_h, this_group_g)
+        self.__check_unshare_group_with_group(this_group_h, this_group_g)
         GroupGroupPrivilege.unshare(group_h=this_group_h, group_g=this_group_g, grantor=self.user)
 
     def can_unshare_group_with_group(self, this_group_h, this_group_g):
@@ -2615,7 +2630,7 @@ class UserAccess(models.Model):
         # TODO: make these error messages consistent
 
         try:
-            self.__check_unshare_group_with_user(this_group_h, this_group_g)
+            self.__check_unshare_group_with_group(this_group_h, this_group_g)
             return True
         except PermissionDenied:
             return False
@@ -4141,7 +4156,7 @@ class GroupAccess(models.Model):
         This eliminates duplicates due to multiple invitations.
         """
 
-        return Group.objects.filter(is_active=True,
+        return Group.objects.filter(gaccess__active=True,
                                     g2ghp__group_h=self.group,
                                     g2ghp__privilege__lte=PrivilegeCodes.VIEW)
 
