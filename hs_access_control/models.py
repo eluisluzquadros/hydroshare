@@ -1751,7 +1751,6 @@ class UserAccess(models.Model):
 
             # THE FOLLOWING ARE UNNECESSARY due to delete cascade.
             # UserGroupPrivilege.objects.filter(group=this_group).delete()
-            # GroupGroupPrivilege.objects.filter(group_g=this_group).delete()
             # GroupGroupPrivilege.objects.filter(group_h=this_group).delete()
             # GroupResourcePrivilege.objects.filter(group=this_group).delete()
             # access_group.delete()
@@ -2447,7 +2446,7 @@ class UserAccess(models.Model):
             return User.objects.none()
 
     ####################################
-    # (can_)share_group_with_user: check for and implement share
+    # (can_)share_group_with_group: check for and implement share
     ####################################
 
     def can_share_group_with_group(self, this_group_h, this_group_g, this_privilege):
@@ -2455,8 +2454,8 @@ class UserAccess(models.Model):
         Return True if a given user can share this group with a specified group
         with a given privilege.
 
-        :param this_group_g: group that is recipient of privilege
-        :param this_group_g: group that is granting privilege
+        :param this_group_h: Group to be shared.
+        :param this_group_g: Group with which to share.
         :param this_privilege: privilege to assign to user
         :return: True if sharing is possible, otherwise false.
 
@@ -2487,8 +2486,8 @@ class UserAccess(models.Model):
         Raise exception if a given user cannot share this group with a given privilege
         to a specific user.
 
-        :param this_group_h: group to check
-        :param this_group_g: group with which to share it.
+        :param this_group_h: Group to be shared.
+        :param this_group_g: Group with which to share.
         :param this_privilege: privilege to assign
         :return: True if sharing is possible, otherwise raise an exception.
 
@@ -2499,7 +2498,7 @@ class UserAccess(models.Model):
     def share_group_with_group(self, this_group_h, this_group_g, this_privilege):
         """
         :param this_group_h: Group to be shared.
-        :param this_group_g: Group with whom to share.
+        :param this_group_g: Group with which to share.
         :param this_privilege: privilege to assign: 1-4
         :return: none
 
@@ -2514,9 +2513,9 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            if my_user.can_share_group(some_group_h, PrivilegeCodes.CHANGE):
+            if my_user.can_share_group_with_group(group_h, group_g, PrivilegeCodes.CHANGE):
                 # ...time passes, forms are created, requests are made...
-                my_user.share_group_with_group(some_group_h, some_group_g, PrivilegeCodes.CHANGE)
+                my_user.share_group_with_group(group_h, group_g, PrivilegeCodes.CHANGE)
 
         In practice:
         ------------
@@ -2554,8 +2553,8 @@ class UserAccess(models.Model):
         """
         Remove a user from a group by removing privileges.
 
-        :param this_group_h: Group to be affected.
-        :param this_group_g: Group with whom to unshare group
+        :param this_group_h: Group to be shared.
+        :param this_group_g: Group with which to share.
         :return: None
 
         This removes a user "this_group_g" from a group "this_group_h" if
@@ -2638,7 +2637,7 @@ class UserAccess(models.Model):
     def __check_unshare_group_with_group(self, this_group_h, this_group_g):
         """ Check whether an unshare of a group with a user is permitted. """
 
-        if this_group_g not in this_group_h.gaccess.groups_within_group:
+        if this_group_g not in this_group_h.gaccess.group_members:
             raise PermissionDenied("Group is not a member of the target group")
 
         # Check for sufficient privilege
@@ -2648,11 +2647,11 @@ class UserAccess(models.Model):
 
         return True
 
-    def get_group_unshare_groups(self, this_group_h):
+    def get_group_unshare_groups(self, this_group_g):
         """
         Get a QuerySet of groups who could be unshared from this group.
 
-        :param this_group_h: group to check.
+        :param this_group_g: group to check.
         :return: QuerySet of groups who could be removed by self.
 
         A group can be unshared with a group if:
@@ -2663,23 +2662,23 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            h = some_group_h
+            h = some_group_g
             g = some_group_g
             unshare_groups = request_user.get_group_unshare_groups(h)
             if g in unshare_groups:
                 self.unshare_group_with_group(h, g)
         """
         if __debug__:  # during testing only, check argument types and preconditions
-            assert isinstance(this_group_h, Group)
+            assert isinstance(this_group_g, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_h.gaccess.active:
+        if not this_group_g.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        access_group = this_group_h.gaccess
+        access_group = this_group_g.gaccess
 
-        if self.user.is_superuser or self.owns_group(this_group_h):
+        if self.user.is_superuser or self.owns_group(this_group_g):
             return access_group.member_groups
             # TODO: write member_groups, member_users to augment members
         else:
@@ -4147,7 +4146,7 @@ class GroupAccess(models.Model):
                                    u2ugp__privilege__lte=PrivilegeCodes.VIEW)
 
     @property
-    def groups_within_group(self):
+    def group_members(self):
         """
         Return list of groups that are themselves "members" of a group.
 

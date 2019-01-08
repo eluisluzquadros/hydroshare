@@ -75,6 +75,7 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
                                                                      PrivilegeCodes.CHANGE))
 
         # share a group with a group
+        # sharing "arfers" with "meowers" means that "meowers" is a member of "arfers" 
         self.dog.uaccess.share_group_with_group(self.arfers, self.meowers, PrivilegeCodes.VIEW)
 
         # privilege object created
@@ -91,6 +92,9 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
                          PrivilegeCodes.VIEW)
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
+
+        self.assertTrue(self.meowers in self.arfers.gaccess.group_members)
+        self.assertTrue(self.arfers not in self.meowers.gaccess.group_members)
 
         # TODO: next code cascading privilege in access control:
         # groupA is a member of groupB and groupB has access means groupA has access.
