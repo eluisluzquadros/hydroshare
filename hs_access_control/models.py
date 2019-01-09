@@ -2636,7 +2636,7 @@ class UserAccess(models.Model):
     def __check_unshare_group_with_group(self, this_group_s, this_group_w):
         """ Check whether an unshare of a group with a user is permitted. """
 
-        if this_group_w not in this_group_s.gaccess.group_members:
+        if this_group_w not in this_group_s.gaccess.member_groups:
             raise PermissionDenied("Group is not a member of the target group")
 
         # Check for sufficient privilege
@@ -3865,20 +3865,15 @@ class UserAccess(models.Model):
             raise PermissionDenied("Requesting user is not active")
         if not this_group_s.gaccess.active:
             raise PermissionDenied("Group is not active")
-        if not this_group_w.is_active:
+        if not this_group_w.gaccess.active:
             raise PermissionDenied("Group is not active")
 
         qual_undo = self.__get_group_undo_groups(this_group_s)
         if this_group_w in qual_undo:
-            GroupGroupPrivilege.undo_share(group_w=this_group_s, group_s=this_group_w,
+            GroupGroupPrivilege.undo_share(group_s=this_group_s, group_w=this_group_w,
                                            grantor=self.user)
         else:
-            # determine which exception to raise.
-            raw_undo = GroupGroupPrivilege.get_undo_groups(group_s=this_group_s, grantor=self.user)
-            if this_group_w in raw_undo:
-                raise PermissionDenied("Cannot remove last owner of group")
-            else:
-                raise PermissionDenied("Group did not grant last privilege")
+            raise PermissionDenied("Group did not grant last privilege")
 
     ##################################
     # undo for resources
@@ -4257,7 +4252,7 @@ class GroupAccess(models.Model):
                                    u2ugp__privilege__lte=PrivilegeCodes.VIEW)
 
     @property
-    def group_members(self):
+    def member_groups(self):
         """
         Return list of groups that are themselves "members" of a group.
 
@@ -4271,13 +4266,28 @@ class GroupAccess(models.Model):
                                     w2swp__privilege__lte=PrivilegeCodes.VIEW)
 
     @property
+    def parent_groups(self):
+        """
+        Return list of groups for which this group is a member.
+
+        :return: list of groups
+
+        This eliminates duplicates due to multiple invitations.
+        """
+
+        return Group.objects.filter(gaccess__active=True,
+                                    s2swp__group_w=self.group,
+                                    s2swp__privilege__lte=PrivilegeCodes.VIEW)
+
+    @property
     def view_resources(self):
         """
         QuerySet of resources held by group.
 
         :return: QuerySet of resource objects held by group.
         """
-        return BaseResource.objects.filter(r2grp__group=self.group)
+        return BaseResource.objects.filter(Q(r2grp__group=self.group) |
+                                           Q(r2grp__group__w2swp__group_s=self.group))
 
     @property
     def edit_resources(self):
@@ -4286,8 +4296,12 @@ class GroupAccess(models.Model):
 
         :return: List of resource objects that can be edited  by this group.
         """
-        return BaseResource.objects.filter(r2grp__group=self.group, raccess__immutable=False,
-                                           r2grp__privilege__lte=PrivilegeCodes.CHANGE)
+        return BaseResource.objects.filter(
+            Q(raccess__immutable=False) &
+            Q(r2grp__privilege__lte=PrivilegeCodes.CHANGE) &
+            (Q(r2grp__group=self.group) |
+             Q(r2grp__group__w2swp__group_s=self.group,
+               r2grp__group__w2swp__privilege__lte=PrivilegeCodes.CHANGE)))
 
     @property
     def group_membership_requests(self):

@@ -11,6 +11,7 @@ from hs_core.testing import MockIRODSTestCaseMixin
 
 from hs_access_control.tests.utilities import global_reset, is_equal_to_as_set
 
+from pprint import pprint 
 
 class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
 
@@ -59,6 +60,22 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
 
         self.cat.uaccess.share_group_with_user(self.meowers, self.dog, PrivilegeCodes.VIEW)
 
+        self.holes = hydroshare.create_resource(
+            resource_type='GenericResource',
+            owner=self.dog,
+            title='all about dog holes',
+            metadata=[],
+        )
+        self.dog.uaccess.share_resource_with_group(self.holes, self.arfers, PrivilegeCodes.VIEW)
+
+        self.posts = hydroshare.create_resource(
+            resource_type='GenericResource',
+            owner=self.cat,
+            title='all about scratching posts',
+            metadata=[],
+        )
+        self.cat.uaccess.share_resource_with_group(self.posts, self.meowers, PrivilegeCodes.VIEW)
+
     def test_01_share_group_with_group(self):
         " share group with group, in allowed direction "
 
@@ -93,8 +110,16 @@ class T05CreateGroup(MockIRODSTestCaseMixin, TestCase):
         self.assertEqual(self.meowers.gaccess.get_effective_privilege(self.arfers),
                          PrivilegeCodes.NONE)
 
-        self.assertTrue(self.meowers in self.arfers.gaccess.group_members)
-        self.assertTrue(self.arfers not in self.meowers.gaccess.group_members)
+        print('arfers.member_groups')
+        pprint(list(self.arfers.gaccess.member_groups))
+        print('meowers.member_groups')
+        pprint(list(self.meowers.gaccess.member_groups))
+        self.assertTrue(self.meowers in self.arfers.gaccess.member_groups)
+        self.assertTrue(self.arfers not in self.meowers.gaccess.member_groups)
+
+        # check that resources are found correctly in groups
+        self.assertTrue(self.posts in self.meowers.gaccess.view_resources)
+        self.assertTrue(self.holes in self.arfers.gaccess.view_resources)
 
         # TODO: next code cascading privilege in access control:
         # groupA is a member of groupB and groupB has access means groupA has access.
