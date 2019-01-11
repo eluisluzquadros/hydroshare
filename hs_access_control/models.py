@@ -7,7 +7,7 @@ groups, and resources, and determine what objects are accessible to which users.
 * determine four kinds of privilege
 
    1) user membership in and privilege over groups.
-   1) group membership in and privilege over groups.
+   1) subgroup membership in and privilege over groups.
    2) user privilege over resources.
    3) group privilege over resources.
 
@@ -2120,7 +2120,7 @@ class UserAccess(models.Model):
         if user is not None:
             grantee_priv = access_group.get_effective_privilege(user)
         elif subgroup is not None:
-            grantee_priv = access_group.get_effective_privilege(subgroup)
+            grantee_priv = access_group.get_effective_subgroup_privilege(subgroup)
         else:
             grantee_priv = PrivilegeCodes.NONE
 
@@ -2647,7 +2647,7 @@ class UserAccess(models.Model):
 
         return True
 
-    def get_group_unshare_groups(self, this_subgroup):
+    def get_subgroup_unshare_groups(self, this_subgroup):
         """
         Get a QuerySet of groups who could be unshared from this group.
 
@@ -2775,9 +2775,9 @@ class UserAccess(models.Model):
         # This is a mouthful.
         # a resource is editable if
         # 1. it's shared with the user and editable.
-        # 2. it's shared with a group containing the user and the group has edit
-        # 3. it's share with a group that is a member of a group that has edit,
-        #    and the share has edit
+        # 2. it's shared with a group that has edit privilege and contains the user, 
+        # 3. it's shared with a group that has edit privilege and a subgroup that contains the user,
+        #    and the subgroup share preserves edit
 
         return BaseResource.objects.filter(
             Q(raccess__immutable=False) &
@@ -2785,12 +2785,12 @@ class UserAccess(models.Model):
                r2urp__privilege__lte=PrivilegeCodes.CHANGE) |
              Q(r2grp__group__gaccess__active=True,
                r2grp__group__g2ugp__user=self.user,
-               r2grp__privilege__lte=PrivilegeCodes.CHANGE) |
+               r2grp__privilege=PrivilegeCodes.CHANGE) |
              Q(r2grp__group__gaccess__active=True,
-               r2grp__privilege__lte=PrivilegeCodes.CHANGE,
+               r2grp__privilege=PrivilegeCodes.CHANGE,
                r2grp__group__g2gsp__subgroup__gaccess__active=True,
                r2grp__group__g2gsp__subgroup__g2ugp__user=self.user,
-               r2grp__group__g2gsp__privilege__lte=PrivilegeCodes.CHANGE)))\
+               r2grp__group__g2gsp__privilege=PrivilegeCodes.CHANGE)))\
             .distinct()
 
     def get_resources_with_explicit_access(self, this_privilege,
@@ -2879,6 +2879,7 @@ class UserAccess(models.Model):
                 else:
                     finquery = gquery
 
+            # subgroup permission is CHANGE only if both permissions are CHANGE
             if via_subgroup:
                 squery = Q(raccess__immutable=False,
                            r2grp__privilege=PrivilegeCodes.CHANGE,
@@ -2896,7 +2897,7 @@ class UserAccess(models.Model):
                                                           r2urp__user=self.user)
                     return BaseResource.objects.filter(finquery).exclude(pk__in=finexcl).distinct()
                 else:
-                    return BaseResource.objects.filter(finquery)
+                    return BaseResource.objects.filter(finquery).distinct()
             else:
                 return BaseResource.objects.none()
 
@@ -2930,16 +2931,21 @@ class UserAccess(models.Model):
                 else:
                     finquery = gquery
 
+            # subgroup permission is VIEW if at least one of the two permissions is VIEW
+            # or if the resource is immutable and there is any path to it. 
             if via_subgroup:
                 squery = \
                     Q(r2grp__group__gaccess__active=True,
+                      r2grp__privilege=PrivilegeCodes.VIEW,
                       r2grp__group__g2gsp__subgroup__gaccess__active=True,
+                      r2grp__group__g2gsp__subgroup__g2ugp__user=self.user) | \
+                    Q(r2grp__group__gaccess__active=True,
                       r2grp__group__g2gsp__privilege=PrivilegeCodes.VIEW,
+                      r2grp__group__g2gsp__subgroup__gaccess__active=True,
                       r2grp__group__g2gsp__subgroup__g2ugp__user=self.user) | \
                     Q(raccess__immutable=True,
                       r2grp__group__gaccess__active=True,
                       r2grp__group__g2gsp__subgroup__gaccess__active=True,
-                      r2grp__group__g2gsp__privilege=PrivilegeCodes.CHANGE,
                       r2grp__group__g2gsp__subgroup__g2ugp__user=self.user)
                 if finquery is not None:
                     finquery = finquery | squery
@@ -2954,7 +2960,7 @@ class UserAccess(models.Model):
 
                     return BaseResource.objects.filter(finquery).exclude(pk__in=finexcl).distinct()
                 else:
-                    return BaseResource.objects.filter(finquery)
+                    return BaseResource.objects.filter(finquery).distinct()
             else:
                 return BaseResource.objects.none()
 
@@ -4407,33 +4413,42 @@ class GroupAccess(models.Model):
                                        u2ugp__group=self.group,
                                        u2ugp__privilege=PrivilegeCodes.VIEW)
 
-    def get_effective_privilege(self, this_thing):
+    def get_effective_privilege(self, this_user):
         """
-        Return cumulative privilege for a user or group over a group
+        Return cumulative privilege for a user over a group
 
-        :param this_thing: User or Group to check
+        :param this_user: User to check
         :return: Privilege code 1-4
         """
 
-        if isinstance(this_thing, User):
-            if not this_thing.is_active:
-                return PrivilegeCodes.NONE
-            try:
-                p = UserGroupPrivilege.objects.get(group=self.group,
-                                                   user=this_thing)
-                return p.privilege
-            except UserGroupPrivilege.DoesNotExist:
-                return PrivilegeCodes.NONE
-        elif isinstance(this_thing, Group):
+        if not this_user.is_active:
+            return PrivilegeCodes.NONE
+        try:
+            p = UserGroupPrivilege.objects.get(group=self.group,
+                                               user=this_user)
+            return p.privilege
+        except UserGroupPrivilege.DoesNotExist:
+            return PrivilegeCodes.NONE
 
-            if not this_thing.gaccess.active:
-                return PrivilegeCodes.NONE
-            try:
-                p = GroupSubgroupPrivilege.objects.get(group=self.group,
-                                                       subgroup=this_thing)
-                return p.privilege
-            except GroupSubgroupPrivilege.DoesNotExist:
-                return PrivilegeCodes.NONE
+    def get_effective_subgroup_privilege(self, this_subgroup):
+        """
+        Return cumulative privilege for a subgroup over a group.
+
+        This does not directly grant privilege to a subgroup, but instead, 
+        potentially overrides the privilege of the subgroup over group resources. 
+
+        :param this_subgroup: subgroup to check
+        :return: Privilege code 1-4
+        """
+
+        if not this_subgroup.gaccess.active:
+            return PrivilegeCodes.NONE
+        try:
+            p = GroupSubgroupPrivilege.objects.get(group=self.group,
+                                                   subgroup=this_subgroup)
+            return p.privilege
+        except GroupSubgroupPrivilege.DoesNotExist:
+            return PrivilegeCodes.NONE
 
 
 class ResourceAccess(models.Model):
