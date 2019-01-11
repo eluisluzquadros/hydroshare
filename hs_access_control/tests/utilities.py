@@ -16,7 +16,7 @@ from pprint import pprint
 from hs_access_control.models import UserAccess, GroupAccess, ResourceAccess, \
     UserResourcePrivilege, GroupResourcePrivilege, UserGroupPrivilege, PrivilegeCodes, \
     UserResourceProvenance, GroupResourceProvenance, UserGroupProvenance, \
-    GroupGroupPrivilege, GroupGroupProvenance
+    GroupSubgroupPrivilege, GroupSubgroupProvenance
 
 
 # from hs_core import hydroshare
@@ -27,11 +27,11 @@ from hs_core.models import BaseResource
 def global_reset():
     UserResourcePrivilege.objects.all().delete()
     UserGroupPrivilege.objects.all().delete()
-    GroupGroupPrivilege.objects.all().delete()
+    GroupSubgroupPrivilege.objects.all().delete()
     GroupResourcePrivilege.objects.all().delete()
     UserResourceProvenance.objects.all().delete()
     UserGroupProvenance.objects.all().delete()
-    GroupGroupProvenance.objects.all().delete()
+    GroupSubgroupProvenance.objects.all().delete()
     GroupResourceProvenance.objects.all().delete()
     UserAccess.objects.all().delete()
     GroupAccess.objects.all().delete()

@@ -48,6 +48,7 @@ from django.db import transaction
 from django.core.exceptions import PermissionDenied
 
 from hs_core.models import BaseResource
+# from pprint import pprint
 
 ######################################
 # Access control subsystem
@@ -382,7 +383,7 @@ class UserGroupPrivilege(PrivilegeBase):
         return UserGroupProvenance.get_undo_users(**kwargs)
 
 
-class GroupGroupPrivilege(PrivilegeBase):
+class GroupSubgroupPrivilege(PrivilegeBase):
     """ Privileges of a user over a group
 
     Having any privilege over a group is synonymous with membership.
@@ -398,17 +399,17 @@ class GroupGroupPrivilege(PrivilegeBase):
                                     default=PrivilegeCodes.VIEW)
     start = models.DateTimeField(editable=False, auto_now=True)
 
-    group_w = models.ForeignKey(Group,
-                                null=False,
-                                editable=False,
-                                related_name='w2swp',
-                                help_text='group to be granted privilege')
+    subgroup = models.ForeignKey(Group,
+                                 null=False,
+                                 editable=False,
+                                 related_name='s2gsp',
+                                 help_text='group to be granted privilege')
 
-    group_s = models.ForeignKey(Group,
-                                null=False,
-                                editable=False,
-                                related_name='s2swp',
-                                help_text='group providing privilege')
+    group = models.ForeignKey(Group,
+                              null=False,
+                              editable=False,
+                              related_name='g2gsp',
+                              help_text='group providing privilege')
 
     grantor = models.ForeignKey(User,
                                 null=False,
@@ -417,17 +418,17 @@ class GroupGroupPrivilege(PrivilegeBase):
                                 help_text='grantor of privilege')
 
     class Meta:
-        unique_together = ('group_w', 'group_s')
+        unique_together = ('subgroup', 'group')
 
     def __str__(self):
         """ Return printed depiction for debugging """
         return str.format("<group '{}' (id={}) holds {} ({})" +
                           " over group '{}' (id={})" +
                           " via grantor '{}' (id={})>",
-                          str(self.group_w.name), str(self.group_w.id),
+                          str(self.subgroup.name), str(self.subgroup.id),
                           PrivilegeCodes.NAMES[self.privilege],
                           str(self.privilege),
-                          str(self.group_s.name), str(self.group_s.id),
+                          str(self.group.name), str(self.group.id),
                           str(self.grantor.username), str(self.grantor.id))
 
     @classmethod
@@ -437,19 +438,19 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group_s: source group to share
-        :param group_w: target group with which to share
+        :param group: source group to share
+        :param subgroup: target group with which to share
         :param privilege: privilege 1-4.
         :param grantor: user who requested privilege.
 
         Usage:
-            GroupGroupPrivilege.share(group={X}, user={Y}, privilege={Z}, grantor={W}
+            GroupSubgroupPrivilege.share(group={X}, user={Y}, privilege={Z}, grantor={W}
         """
         if __debug__:
-            assert 'group_w' in kwargs
-            assert isinstance(kwargs['group_w'], Group)
-            assert 'group_s' in kwargs
-            assert isinstance(kwargs['group_s'], Group)
+            assert 'subgroup' in kwargs
+            assert isinstance(kwargs['subgroup'], Group)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
             assert 'grantor' in kwargs
             assert isinstance(kwargs['grantor'], User)
             assert 'privilege' in kwargs
@@ -458,7 +459,7 @@ class GroupGroupPrivilege(PrivilegeBase):
                 kwargs['privilege'] <= PrivilegeCodes.NONE
             assert len(kwargs) == 4
         cls.update(**kwargs)
-        GroupGroupProvenance.update(**kwargs)
+        GroupSubgroupProvenance.update(**kwargs)
 
     @classmethod
     def unshare(cls, **kwargs):
@@ -467,12 +468,12 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group_s: source group to share
-        :param group_w: target group with which to share
+        :param group: source group to share
+        :param subgroup: target group with which to share
         :param grantor: user who requested privilege.
 
         Usage:
-            GroupGroupPrivilege.unshare(group={X}, user={Y}, grantor={W})
+            GroupSubgroupPrivilege.unshare(group={X}, user={Y}, grantor={W})
 
         Important: this does not guard against removing a single owner.
 
@@ -481,15 +482,15 @@ class GroupGroupPrivilege(PrivilegeBase):
         deletion.
         """
         if __debug__:
-            assert 'group_w' in kwargs
-            assert isinstance(kwargs['group_w'], Group)
-            assert 'group_s' in kwargs
-            assert isinstance(kwargs['group_s'], Group)
+            assert 'subgroup' in kwargs
+            assert isinstance(kwargs['subgroup'], Group)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
             assert 'grantor' in kwargs
             assert isinstance(kwargs['grantor'], User)
             assert len(kwargs) == 3
         cls.update(privilege=PrivilegeCodes.NONE, **kwargs)
-        GroupGroupProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
+        GroupSubgroupProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
 
     @classmethod
     def undo_share(cls, **kwargs):
@@ -498,12 +499,12 @@ class GroupGroupPrivilege(PrivilegeBase):
 
         ***This completely bypasses access control*** but keeps provenance in sync.
 
-        :param group_s: source group to undo
-        :param group_w: target group with which to undo share
+        :param group: source group to undo
+        :param subgroup: target group with which to undo share
         :param grantor: user who requested privilege.
 
         Usage:
-            UserGroupPrivilege.undo_share(group_w={X}, group_s={Y}, grantor={W})
+            UserGroupPrivilege.undo_share(subgroup={X}, group={Y}, grantor={W})
 
         In practice:
 
@@ -517,26 +518,26 @@ class GroupGroupPrivilege(PrivilegeBase):
         **This is a system routine** that should not be called directly by developers!
         """
         if __debug__:
-            assert 'group_w' in kwargs
-            assert isinstance(kwargs['group_w'], Group)
-            assert 'group_s' in kwargs
-            assert isinstance(kwargs['group_s'], Group)
+            assert 'subgroup' in kwargs
+            assert isinstance(kwargs['subgroup'], Group)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
             assert 'grantor' in kwargs
             assert isinstance(kwargs['grantor'], User)
             assert len(kwargs) == 3
         grantor = kwargs['grantor']
         del kwargs['grantor']
         # undo in provenance model; add a record that reinstates previous privilege.
-        GroupGroupProvenance.undo_share(grantor=grantor, **kwargs)
+        GroupSubgroupProvenance.undo_share(grantor=grantor, **kwargs)
         # read that record and post to privilege table.
-        r = GroupGroupProvenance.get_current_record(**kwargs)
-        cls.update(group_w=r.group_w, group_s=r.group_s, privilege=r.privilege, grantor=r.grantor)
+        r = GroupSubgroupProvenance.get_current_record(**kwargs)
+        cls.update(subgroup=r.subgroup, group=r.group, privilege=r.privilege, grantor=r.grantor)
 
     @classmethod
     def get_undo_groups(cls, **kwargs):
         """ Get a set of groups for which a grantor can undo privilege
 
-        :param group_s: group to check
+        :param group: group to check
         :param grantor: user that will undo privilege
 
         Important: this does not guard against removing a single owner.
@@ -544,12 +545,12 @@ class GroupGroupPrivilege(PrivilegeBase):
         **This is a system routine** that should not be called directly by developers!
         """
         if __debug__:
-            assert 'group_s' in kwargs
-            assert isinstance(kwargs['group_s'], Group)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
             assert 'grantor' in kwargs
             assert isinstance(kwargs['grantor'], User)
             assert len(kwargs) == 2
-        return GroupGroupProvenance.get_undo_groups(**kwargs)
+        return GroupSubgroupProvenance.get_undo_groups(**kwargs)
 
 
 class UserResourcePrivilege(PrivilegeBase):
@@ -926,8 +927,8 @@ class ProvenanceBase(models.Model):
         Usage:
             UserResourceProvenance.get_privilege(resource={X}, user={Y})
             UserGroupProvenance.get_privilege(group={X}, user={Y})
-            GroupGroupProvenance.get_privilege(resource={X}, group={Y})
-            GroupResourceProvenance.get_privilege(resource={X}, group_s={Y})
+            GroupSubgroupProvenance.get_privilege(resource={X}, group={Y})
+            GroupResourceProvenance.get_privilege(resource={X}, group={Y})
         """
         if __debug__:
             assert len(kwargs) == 2
@@ -949,7 +950,7 @@ class ProvenanceBase(models.Model):
         Usage:
             UserResourceProvenance.update(resource={X}, user={Y}, privilege={Z}, ...)
             UserGroupProvenance.update(group={X}, user={Y}, privilege={Z}, ...)
-            GroupGroupProvenance.update(resource={X}, group_s={Y}, privilege={Z}, ...)
+            GroupSubgroupProvenance.update(resource={X}, group={Y}, privilege={Z}, ...)
             GroupResourceProvenance.update(resource={X}, group={Y}, privilege={Z}, ...)
         """
         cls.objects.create(**kwargs)
@@ -1230,7 +1231,7 @@ class UserGroupProvenance(ProvenanceBase):
                                                undone=undone)
 
 
-class GroupGroupProvenance(ProvenanceBase):
+class GroupSubgroupProvenance(ProvenanceBase):
     """
     Provenance of privileges of a user over a group
 
@@ -1239,7 +1240,7 @@ class GroupGroupProvenance(ProvenanceBase):
     This is an append-only ledger of group privilege that serves as complete provenance
     of access changes.  At any time, one privilege applies to each grantee and group.
     This is the privilege with the latest start date.  For performance reasons, this
-    information is cached in a separate table GroupGroupPrivilege.
+    information is cached in a separate table GroupSubgroupPrivilege.
 
     To undo a privilege, one appends a record to this table with PrivilegeCodes.NONE.
     This is indistinguishable from having no record at all.  Thus, this provides a
@@ -1254,17 +1255,17 @@ class GroupGroupProvenance(ProvenanceBase):
 
     start = models.DateTimeField(editable=False, auto_now_add=True)
 
-    group_w = models.ForeignKey(Group,
-                                null=False,
-                                editable=False,
-                                related_name='g2ghq',
-                                help_text='group to be granted privilege')
+    subgroup = models.ForeignKey(Group,
+                                 null=False,
+                                 editable=False,
+                                 related_name='g2ghq',
+                                 help_text='group to be granted privilege')
 
-    group_s = models.ForeignKey(Group,
-                                null=False,
-                                editable=False,
-                                related_name='h2ghq',
-                                help_text='group to which privilege applies')
+    group = models.ForeignKey(Group,
+                              null=False,
+                              editable=False,
+                              related_name='h2ghq',
+                              help_text='group to which privilege applies')
 
     grantor = models.ForeignKey(User,
                                 null=True,
@@ -1275,24 +1276,24 @@ class GroupGroupProvenance(ProvenanceBase):
     undone = models.BooleanField(editable=False, default=False)
 
     class Meta:
-        unique_together = ('group_w', 'group_s', 'start')
+        unique_together = ('subgroup', 'group', 'start')
 
     @property
     def grantee(self):
         """ make printing of privilege records work properly in superclass"""
-        return self.group_w
+        return self.subgroup
 
     @property
     def entity(self):
         """ make printing of privilege records work properly in superclass"""
-        return self.group_s
+        return self.group
 
     @classmethod
-    def get_undo_groups(cls, group_s, grantor):
+    def get_undo_groups(cls, group, grantor):
         """
         get the groups for which a specific grantee can undo privilege
 
-        :param group_s: group to check.
+        :param group: group to check.
         :param grantor: user that would initiate the rollback.
 
         Note: undo is somewhat independent of access control. A user need not hold
@@ -1301,12 +1302,12 @@ class GroupGroupProvenance(ProvenanceBase):
 
         if __debug__:
             assert isinstance(grantor, User)
-            assert isinstance(group_s, Group)
+            assert isinstance(group, Group)
 
         # users are those last granted a privilege over the entity by the grantor
         # This syntax is curious due to undesirable semantics of .exclude.
         # All conditions on the filter must be specified in the same filter statement.
-        selected = Group.objects.filter(g2ghq__group_s=group_s)\
+        selected = Group.objects.filter(g2ghq__group=group)\
                                .annotate(start=Max('g2ghq__start'))\
                                .filter(g2ghq__start=F('start'),
                                        g2ghq__grantor=grantor,
@@ -1314,28 +1315,28 @@ class GroupGroupProvenance(ProvenanceBase):
         return selected
 
     @classmethod
-    def update(cls, group_s, group_w, privilege, grantor, undone=False):
+    def update(cls, group, subgroup, privilege, grantor, undone=False):
         """
         Add a provenance record to the provenance chain.
 
-        :param group_s: shared group
-        :param group_w: group with which group_s is shared.
+        :param group: shared group
+        :param subgroup: group with which group is shared.
         :param grantor: user that would initiate the rollback.
 
         This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
         """
 
         if __debug__:
-            assert isinstance(group_s, Group)
-            assert isinstance(group_w, Group)
+            assert isinstance(group, Group)
+            assert isinstance(subgroup, Group)
             assert grantor is None or isinstance(grantor, User)
             assert privilege >= PrivilegeCodes.OWNER and privilege <= PrivilegeCodes.NONE
 
-        super(GroupGroupProvenance, cls).update(group_s=group_s,
-                                                group_w=group_w,
-                                                privilege=privilege,
-                                                grantor=grantor,
-                                                undone=undone)
+        super(GroupSubgroupProvenance, cls).update(group=group,
+                                                   subgroup=subgroup,
+                                                   privilege=privilege,
+                                                   grantor=grantor,
+                                                   undone=undone)
 
 
 class UserResourceProvenance(ProvenanceBase):
@@ -1439,7 +1440,7 @@ class GroupResourceProvenance(ProvenanceBase):
 
     The group privilege over a resource is not directly meaningful.
     it is resolved instead into user privilege for each member of
-    the group, as listed in UserGroupProvenance and GroupGroupProvenance above.
+    the group, as listed in UserGroupProvenance and GroupSubgroupProvenance above.
 
     This is an append-only ledger of group privilege that serves as complete provenance
     of access changes.  At any one time, one privilege applies to each user and resource.
@@ -1749,7 +1750,7 @@ class UserAccess(models.Model):
 
             # THE FOLLOWING ARE UNNECESSARY due to delete cascade.
             # UserGroupPrivilege.objects.filter(group=this_group).delete()
-            # GroupGroupPrivilege.objects.filter(group_s=this_group).delete()
+            # GroupSubgroupPrivilege.objects.filter(group=this_group).delete()
             # GroupResourcePrivilege.objects.filter(group=this_group).delete()
             # access_group.delete()
 
@@ -2023,14 +2024,14 @@ class UserAccess(models.Model):
 
         return self.user.is_superuser or self.owns_group(this_group)
 
-    def can_share_group(self, this_group, this_privilege, user=None, group_w=None):
+    def can_share_group(self, this_group, this_privilege, user=None, subgroup=None):
         """
         Return True if a given user can share this group with a given privilege.
 
         :param this_group: group to check
         :param this_privilege: privilege to assign
         :param user: user with which to share.
-        :param group_w: group with which to share.
+        :param subgroup: group with which to share.
         :return: True if sharing is possible, otherwise false.
 
         This determines whether the current user can share a group, independent of
@@ -2044,9 +2045,9 @@ class UserAccess(models.Model):
                 # ...time passes, forms are created, requests are made...
                 my_user.share_group_with_user(some_group, some_user, PrivilegeCodes.VIEW)
 
-            if my_user.can_share_group(some_group, PrivilegeCodes.VIEW, group_w=some_other_group):
+            if my_user.can_share_group(some_group, PrivilegeCodes.VIEW, subgroup=some_other_group):
                 # ...time passes, forms are created, requests are made...
-                my_user.share_group_with_group(some_group, some_other_group, PrivilegeCodes.VIEW)
+                my_user.share_group_with_subgroup(some_group, some_other_group, PrivilegeCodes.VIEW)
 
 
         In practice:
@@ -2061,8 +2062,8 @@ class UserAccess(models.Model):
                 and this_privilege <= PrivilegeCodes.VIEW
             if user is not None:
                 assert isinstance(user, User)
-            if group_w is not None:
-                assert isinstance(group_w, Group)
+            if subgroup is not None:
+                assert isinstance(subgroup, Group)
 
         # TODO: these checks should not be caught by this routine
         # TODO: as they are caught above this level.
@@ -2073,19 +2074,19 @@ class UserAccess(models.Model):
         if user is not None:
             if not user.is_active:
                 raise PermissionDenied("Grantee user is not active")
-        elif group_w is not None:
-            if not group_w.gaccess.active:
+        elif subgroup is not None:
+            if not subgroup.gaccess.active:
                 raise PermissionDenied("Group is not active")
             if this_privilege == PrivilegeCodes.OWNER:
                 raise PermissionDenied("Groups cannot own groups")
 
         try:
-            self.__check_share_group(this_group, this_privilege, user=user, group_w=group_w)
+            self.__check_share_group(this_group, this_privilege, user=user, subgroup=subgroup)
             return True
         except PermissionDenied:
             return False
 
-    def __check_share_group(self, this_group, this_privilege, user=None, group_w=None):
+    def __check_share_group(self, this_group, this_privilege, user=None, subgroup=None):
 
         """
         Raise exception if a given user cannot share this group with a given privilege.
@@ -2093,7 +2094,7 @@ class UserAccess(models.Model):
         :param this_group: group to check
         :param this_privilege: privilege to assign
         :param user: (optional) user with which to share.
-        :param group_w: (optional) group with which to share.
+        :param subgroup: (optional) group with which to share.
         :return: True if sharing is possible, otherwise raise an exception.
 
         This determines whether the current user can share a group, independent of
@@ -2118,12 +2119,12 @@ class UserAccess(models.Model):
         grantor_priv = access_group.get_effective_privilege(self.user)
         if user is not None:
             grantee_priv = access_group.get_effective_privilege(user)
-        elif group_w is not None:
-            grantee_priv = access_group.get_effective_privilege(group_w)
+        elif subgroup is not None:
+            grantee_priv = access_group.get_effective_privilege(subgroup)
         else:
             grantee_priv = PrivilegeCodes.NONE
 
-        if group_w is not None and this_privilege == PrivilegeCodes.OWNER:
+        if subgroup is not None and this_privilege == PrivilegeCodes.OWNER:
             raise PermissionDenied("Groups cannot own objects")
 
         # check for user authorization
@@ -2148,11 +2149,9 @@ class UserAccess(models.Model):
                 if this_privilege > grantee_priv and user != self.user:
                     raise PermissionDenied("Non-owners cannot decrease privileges for others")
 
-            if group_w is not None:
-                print("checking group {} for appropriate sharing (privilege={})"
-                      .format(group_w, this_privilege))
+            if subgroup is not None:
                 # only owners of the original group can share a group with a group
-                if not self.user.uaccess.owns_group(group_w):
+                if not self.user.uaccess.owns_group(subgroup):
                     raise PermissionDenied("User must own the group to be shared")
                 if this_privilege < grantor_priv:
                     raise PermissionDenied("Insufficient privilege to share at this privilege")
@@ -2445,16 +2444,17 @@ class UserAccess(models.Model):
             return User.objects.none()
 
     ####################################
-    # (can_)share_group_with_group: check for and implement share
+    # (can_)share_group_with_subgroup: check for and implement share
     ####################################
 
-    def can_share_group_with_group(self, this_group_s, this_group_w, this_privilege):
+    def can_share_group_with_subgroup(self, this_group, this_subgroup,
+                                   this_privilege=PrivilegeCodes.VIEW):
         """
         Return True if a given user can share this group with a specified group
         with a given privilege.
 
-        :param this_group_s: Group to be shared.
-        :param this_group_w: Group with which to share.
+        :param this_group: Group to be shared.
+        :param this_subgroup: Group with which to share.
         :param this_privilege: privilege to assign to user
         :return: True if sharing is possible, otherwise false.
 
@@ -2463,41 +2463,42 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            if my_user.can_share_group_with_group(some_group_s, some_group_w, PrivilegeCodes.VIEW):
+            if my_user.can_share_group_with_subgroup(some_group, some_subgroup, PrivilegeCodes.VIEW):
                 # ...time passes, forms are created, requests are made...
-                my_user.share_group_with_group(some_group_s, some_group_w, PrivilegeCodes.VIEW)
+                my_user.share_group_with_subgroup(some_group, some_subgroup, PrivilegeCodes.VIEW)
 
         In practice:
         ------------
 
-        If this returns False, UserAccess.share_group_with_group will raise an exception
+        If this returns False, UserAccess.share_group_with_subgroup will raise an exception
         for the corresponding arguments -- *guaranteed*.
         """
         try:
-            self.__check_share_group_with_group(this_group_s, this_group_w, this_privilege)
+            self.__check_share_group_with_subgroup(this_group, this_subgroup, this_privilege)
             return True
         except PermissionDenied:
             return False
 
-    def __check_share_group_with_group(self, this_group_s, this_group_w, this_privilege):
+    def __check_share_group_with_subgroup(self, this_group, this_subgroup, this_privilege):
         """
 
         Raise exception if a given user cannot share this group with a given privilege
         to a specific user.
 
-        :param this_group_s: Group to be shared.
-        :param this_group_w: Group with which to share.
+        :param this_group: Group to be shared.
+        :param this_subgroup: Group with which to share.
         :param this_privilege: privilege to assign
         :return: True if sharing is possible, otherwise raise an exception.
 
         This determines whether the current user can share a group with a specific user.
         """
-        return self.__check_share_group(this_group_s, this_privilege, group_w=this_group_w)
+        return self.__check_share_group(this_group, this_privilege, subgroup=this_subgroup)
 
-    def share_group_with_group(self, this_group_s, this_group_w, this_privilege):
+    def share_group_with_subgroup(self, this_group, this_subgroup,
+                               this_privilege=PrivilegeCodes.VIEW):
         """
-        :param this_group_s: Group to be shared.
-        :param this_group_w: Group with which to share.
+        :param this_group: Group to be shared.
+        :param this_subgroup: Group with which to share.
         :param this_privilege: privilege to assign: 1-4
         :return: none
 
@@ -2512,9 +2513,9 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            if my_user.can_share_group_with_group(group_s, group_w, PrivilegeCodes.CHANGE):
+            if my_user.can_share_group_with_subgroup(group, subgroup, PrivilegeCodes.CHANGE):
                 # ...time passes, forms are created, requests are made...
-                my_user.share_group_with_group(group_s, group_w, PrivilegeCodes.CHANGE)
+                my_user.share_group_with_subgroup(group, subgroup, PrivilegeCodes.CHANGE)
 
         In practice:
         ------------
@@ -2527,46 +2528,46 @@ class UserAccess(models.Model):
         will raise an exception.
         """
         if __debug__:  # during testing only, check argument types and preconditions
-            assert isinstance(this_group_s, Group)
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_group, Group)
+            assert isinstance(this_subgroup, Group)
             assert this_privilege >= PrivilegeCodes.OWNER and this_privilege <= PrivilegeCodes.VIEW
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Group to be shared is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Group with which to share is not active")
 
         # raise a PermissionDenied exception if user self is not allowed to do this.
-        self.__check_share_group_with_group(this_group_s, this_group_w, this_privilege)
+        self.__check_share_group_with_subgroup(this_group, this_subgroup, this_privilege)
 
-        GroupGroupPrivilege.share(group_s=this_group_s, group_w=this_group_w,
-                                  grantor=self.user, privilege=this_privilege)
+        GroupSubgroupPrivilege.share(group=this_group, subgroup=this_subgroup,
+                                     grantor=self.user, privilege=this_privilege)
 
     ####################################
     # (can_)unshare_group_with_user: check for and implement unshare
     ####################################
 
-    def unshare_group_with_group(self, this_group_s, this_group_w):
+    def unshare_group_with_subgroup(self, this_group, this_subgroup):
         """
         Remove a user from a group by removing privileges.
 
-        :param this_group_s: Group to be shared.
-        :param this_group_w: Group with which to share.
+        :param this_group: Group to be shared.
+        :param this_subgroup: Group with which to share.
         :return: None
 
-        This removes a user "this_group_w" from a group "this_group_s" if
+        This removes a user "this_subgroup" from a group "this_group" if
         one of the following is true:
             * self is an administrator.
-            * self owns the group "this_group_s".
+            * self owns the group "this_group".
 
         Usage:
         ------
 
-            if my_user.can_unshare_group_with_group(some_group_s, some_group_w):
+            if my_user.can_unshare_group_with_subgroup(some_group, some_subgroup):
                 # ...time passes, forms are created, requests are made...
-                my_user.unshare_group_with_group(some_group_s, some_group_w)
+                my_user.unshare_group_with_subgroup(some_group, some_subgroup)
 
         In practice:
         ------------
@@ -2577,80 +2578,80 @@ class UserAccess(models.Model):
         things have changed (e.g., through a stale form).
         """
         if __debug__:  # during testing only, check argument types and preconditions
-            assert isinstance(this_group_s, Group)
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_group, Group)
+            assert isinstance(this_subgroup, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Grantee Group is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Affected Group is not active")
 
-        self.__check_unshare_group_with_group(this_group_s, this_group_w)
-        GroupGroupPrivilege.unshare(group_s=this_group_s, group_w=this_group_w, grantor=self.user)
+        self.__check_unshare_group_with_subgroup(this_group, this_subgroup)
+        GroupSubgroupPrivilege.unshare(group=this_group, subgroup=this_subgroup, grantor=self.user)
 
-    def can_unshare_group_with_group(self, this_group_s, this_group_w):
+    def can_unshare_group_with_subgroup(self, this_group, this_subgroup):
         """
         Determines whether a group can be unshared.
 
-        :param this_group_s: group to be unshared.
-        :param this_group_w: group to which to deny access.
-        :return: Boolean: whether self can unshare this_group_s with this_group_w
+        :param this_group: group to be unshared.
+        :param this_subgroup: group to which to deny access.
+        :return: Boolean: whether self can unshare this_group with this_subgroup
 
         Usage:
         ------
 
-            if my_user.can_unshare_group_with_group(some_group_s, some_group_w):
+            if my_user.can_unshare_group_with_subgroup(some_group, some_subgroup):
                 # ...time passes, forms are created, requests are made...
-                my_user.unshare_group_with_group(some_group_s, some_group_w)
+                my_user.unshare_group_with_subgroup(some_group, some_subgroup)
 
         In practice:
         ------------
 
-        If this routine returns False, UserAccess.unshare_group_with_group is *guaranteed*
+        If this routine returns False, UserAccess.unshare_group_with_subgroup is *guaranteed*
         to raise an exception.
 
 -       Note that can_unshare_X is parallel to unshare_X and returns False exactly
 -       when unshare_X will raise an exception.
         """
         if __debug__:  # during testing only, check argument types and preconditions
-            assert isinstance(this_group_s, Group)
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_group, Group)
+            assert isinstance(this_subgroup, Group)
 
         # these checks should not be caught by this routine
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Group to be unshared is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Group from which to unshare is not active")
         # TODO: make these error messages consistent
 
         try:
-            self.__check_unshare_group_with_group(this_group_s, this_group_w)
+            self.__check_unshare_group_with_subgroup(this_group, this_subgroup)
             return True
         except PermissionDenied:
             return False
 
-    def __check_unshare_group_with_group(self, this_group_s, this_group_w):
+    def __check_unshare_group_with_subgroup(self, this_group, this_subgroup):
         """ Check whether an unshare of a group with a user is permitted. """
 
-        if this_group_w not in this_group_s.gaccess.member_groups:
+        if this_subgroup not in this_group.gaccess.member_groups:
             raise PermissionDenied("Group is not a member of the target group")
 
         # Check for sufficient privilege
         if not self.user.is_superuser \
-                and not self.owns_group(this_group_s):
+                and not self.owns_group(this_group):
             raise PermissionDenied("You do not have permission to remove this sharing setting")
 
         return True
 
-    def get_group_unshare_groups(self, this_group_w):
+    def get_group_unshare_groups(self, this_subgroup):
         """
         Get a QuerySet of groups who could be unshared from this group.
 
-        :param this_group_w: group to check.
+        :param this_subgroup: group to check.
         :return: QuerySet of groups who could be removed by self.
 
         A group can be unshared with a group if:
@@ -2661,23 +2662,23 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            h = some_group_w
-            g = some_group_w
+            h = some_subgroup
+            g = some_subgroup
             unshare_groups = request_user.get_group_unshare_groups(h)
             if g in unshare_groups:
-                self.unshare_group_with_group(h, g)
+                self.unshare_group_with_subgroup(h, g)
         """
         if __debug__:  # during testing only, check argument types and preconditions
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_subgroup, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        access_group = this_group_w.gaccess
+        access_group = this_subgroup.gaccess
 
-        if self.user.is_superuser or self.owns_group(this_group_w):
+        if self.user.is_superuser or self.owns_group(this_subgroup):
             return access_group.member_groups
             # TODO: write member_groups, member_users to augment members
         else:
@@ -2734,9 +2735,13 @@ class UserAccess(models.Model):
             raise PermissionDenied("Requesting user is not active")
 
         # need distinct due to duplicates invoked via Q expressions
-        return BaseResource.objects.filter(Q(r2urp__user=self.user) |
-                                           Q(r2grp__group__gaccess__active=True,
-                                               r2grp__group__g2ugp__user=self.user)).distinct()
+        return BaseResource.objects.filter(
+            Q(r2urp__user=self.user) |
+            Q(r2grp__group__gaccess__active=True,
+              r2grp__group__g2ugp__user=self.user) |
+            Q(r2grp__group__g2gsp__subgroup__gaccess__active=True,
+              r2grp__group__g2gsp__subgroup__g2ugp__user=self.user)
+            ).distinct()
 
     @property
     def owned_resources(self):
@@ -2767,21 +2772,37 @@ class UserAccess(models.Model):
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
 
-        return BaseResource.objects.filter(Q(raccess__immutable=False) &
-                                           (Q(r2urp__user=self.user,
-                                              r2urp__privilege__lte=PrivilegeCodes.CHANGE) |
-                                            Q(r2grp__group__gaccess__active=True,
-                                                r2grp__group__g2ugp__user=self.user,
-                                              r2grp__privilege__lte=PrivilegeCodes.CHANGE)))\
-                                   .distinct()
+        # This is a mouthful.
+        # a resource is editable if
+        # 1. it's shared with the user and editable.
+        # 2. it's shared with a group containing the user and the group has edit
+        # 3. it's share with a group that is a member of a group that has edit,
+        #    and the share has edit
 
-    def get_resources_with_explicit_access(self, this_privilege, via_user=True, via_group=False):
+        return BaseResource.objects.filter(
+            Q(raccess__immutable=False) &
+            (Q(r2urp__user=self.user,
+               r2urp__privilege__lte=PrivilegeCodes.CHANGE) |
+             Q(r2grp__group__gaccess__active=True,
+               r2grp__group__g2ugp__user=self.user,
+               r2grp__privilege__lte=PrivilegeCodes.CHANGE) |
+             Q(r2grp__group__gaccess__active=True,
+               r2grp__privilege__lte=PrivilegeCodes.CHANGE,
+               r2grp__group__g2gsp__subgroup__gaccess__active=True,
+               r2grp__group__g2gsp__subgroup__g2ugp__user=self.user,
+               r2grp__group__g2gsp__privilege__lte=PrivilegeCodes.CHANGE)))\
+            .distinct()
+
+    def get_resources_with_explicit_access(self, this_privilege,
+                                           via_user=True, via_group=False, via_subgroup=False):
+
         """
         Get a list of resources over which the user has the specified privilege
 
         :param this_privilege: A privilege code 1-3
         :param via_user: True to incorporate user privilege
         :param via_group: True to incorporate group privilege
+        :param via_subgroup: True to incorporate member group privileges
 
         Returns: list of resource objects (QuerySet)
 
@@ -2789,19 +2810,19 @@ class UserAccess(models.Model):
 
         Note that in this computation,
 
-        * Setting both via_user and via_group to False is not an error, and
+        * Setting via_user, via_group, via_subgroup to False is not an error, and
           always returns an empty QuerySet.
-        * Via_group is meaningless for OWNER privilege and is ignored.
+        * Via_group and via_subgroup are meaningless for OWNER privilege and are ignored.
         * Exclusion clauses are meaningless for via_user as a user can have only one privilege.
-        * The default is via_user=True, via_group=False, which is the original
+        * The default is via_user=True, via_group=False, via_subgroup=False, which is the original
           behavior of the routine before this revision.
         * Immutable resources are listed as VIEW even if the user or group has CHANGE
         * In the case of multiple privileges, the lowest privilege number
           (highest privilege) wins.
 
-        However, please note that when via_user=True and via_group=True together, this applies
-        to the **total combined privilege** rather than individual privileges. A detailed
-        example:
+        However, please note that when via_user=True, via_group=True, via_subgroup are True
+        together, this applies to the **total combined privilege** rather than individual
+        privileges. A detailed example:
 
         * Garfield shares group Cats with Sylvester as CHANGE
         * Garfield shares resource CatFood with Cats as CHANGE
@@ -2834,55 +2855,68 @@ class UserAccess(models.Model):
 
         # CHANGE does not include immutable resources
         elif this_privilege == PrivilegeCodes.CHANGE:
-            if via_user and via_group:
+
+            finquery = None
+
+            # exclude owners; immutability doesn't matter for them
+            finexcl = Q(r2urp__privilege=PrivilegeCodes.OWNER,
+                        r2urp__user=self.user)
+
+            # Nothing can be immutable if it has CHANGE privileges
+
+            if via_user:
                 uquery = Q(raccess__immutable=False,
                            r2urp__privilege=PrivilegeCodes.CHANGE,
                            r2urp__user=self.user)
+                finquery = uquery  # we know finquery is None
 
+            if via_group:
                 gquery = Q(raccess__immutable=False,
                            r2grp__privilege=PrivilegeCodes.CHANGE,
                            r2grp__group__g2ugp__user=self.user)
+                if finquery is not None:
+                    finquery = finquery | gquery
+                else:
+                    finquery = gquery
 
-                # exclude owners; immutability doesn't matter for them
-                uexcl = Q(r2urp__privilege=PrivilegeCodes.OWNER,
-                          r2urp__user=self.user)
+            if via_subgroup:
+                squery = Q(raccess__immutable=False,
+                           r2grp__privilege=PrivilegeCodes.CHANGE,
+                           r2grp__group__g2gsp__privilege=PrivilegeCodes.CHANGE,
+                           r2grp__group__g2gsp__subgroup__g2ugp__user=self.user)
+                if finquery is not None:
+                    finquery = finquery | squery
+                else:
+                    finquery = squery
 
-                return BaseResource.objects\
-                    .filter(uquery | gquery)\
-                    .exclude(pk__in=BaseResource.objects
-                             .filter(uexcl)).distinct()
-
-            elif via_user:
-                query = Q(raccess__immutable=False,
-                          r2urp__privilege=PrivilegeCodes.CHANGE,
-                          r2urp__user=self.user)
-                return BaseResource.objects\
-                    .filter(query).distinct()
-
-            elif via_group:
-                query = Q(raccess__immutable=False,
-                          r2grp__privilege=PrivilegeCodes.CHANGE,
-                          r2grp__group__g2ugp__user=self.user)
-                return BaseResource.objects\
-                    .filter(query).distinct()
-
+            if finquery is not None:
+                if via_user:
+                    # exclude owners; immutability doesn't matter for them
+                    finexcl = BaseResource.objects.filter(r2urp__privilege=PrivilegeCodes.OWNER,
+                                                          r2urp__user=self.user)
+                    return BaseResource.objects.filter(finquery).exclude(pk__in=finexcl).distinct()
+                else:
+                    return BaseResource.objects.filter(finquery)
             else:
-                # nothing matches
                 return BaseResource.objects.none()
 
         else:  # this_privilege == PrivilegeCodes.VIEW
             # VIEW includes CHANGE+immutable as well as explicit VIEW
             # CHANGE does not include immutable resources
 
-            if via_user and via_group:
+            finquery = None
 
+            # pick up change and owner, use to override VIEW for groups
+            if via_user:
                 uquery = \
                     Q(r2urp__privilege=PrivilegeCodes.VIEW,
                       r2urp__user=self.user) | \
                     Q(raccess__immutable=True,
                       r2urp__privilege=PrivilegeCodes.CHANGE,
                       r2urp__user=self.user)
+                finquery = uquery
 
+            if via_group:
                 gquery = \
                     Q(r2grp__privilege=PrivilegeCodes.VIEW,
                       r2grp__group__g2ugp__user=self.user,
@@ -2891,52 +2925,37 @@ class UserAccess(models.Model):
                       r2grp__privilege=PrivilegeCodes.CHANGE,
                       r2grp__group__g2ugp__user=self.user,
                       r2grp__group__gaccess__active=True)
+                if finquery is not None:
+                    finquery = finquery | gquery
+                else:
+                    finquery = gquery
 
-                # pick up change and owner, use to override VIEW for groups
-                uexcl = \
-                    Q(raccess__immutable=False,
-                      r2urp__privilege=PrivilegeCodes.CHANGE,
-                      r2urp__user=self.user) | \
-                    Q(r2urp__privilege=PrivilegeCodes.OWNER,
-                      r2urp__user=self.user)
-
-                # pick up non-immutable CHANGE, use to override VIEW for groups
-                gexcl = Q(raccess__immutable=False,
-                          r2grp__privilege=PrivilegeCodes.CHANGE,
-                          r2grp__group__g2ugp__user=self.user,
-                          r2grp__group__gaccess__active=True)
-
-                return BaseResource.objects\
-                    .filter(uquery | gquery)\
-                    .exclude(pk__in=BaseResource.objects
-                             .filter(uexcl | gexcl)).distinct()
-
-            elif via_user:
-
-                uquery = \
-                    Q(r2urp__privilege=PrivilegeCodes.VIEW,
-                      r2urp__user=self.user) | \
+            if via_subgroup:
+                squery = \
+                    Q(r2grp__group__gaccess__active=True,
+                      r2grp__group__g2gsp__subgroup__gaccess__active=True,
+                      r2grp__group__g2gsp__privilege=PrivilegeCodes.VIEW,
+                      r2grp__group__g2gsp__subgroup__g2ugp__user=self.user) | \
                     Q(raccess__immutable=True,
-                      r2urp__privilege=PrivilegeCodes.CHANGE,
-                      r2urp__user=self.user)
+                      r2grp__group__gaccess__active=True,
+                      r2grp__group__g2gsp__subgroup__gaccess__active=True,
+                      r2grp__group__g2gsp__privilege=PrivilegeCodes.CHANGE,
+                      r2grp__group__g2gsp__subgroup__g2ugp__user=self.user)
+                if finquery is not None:
+                    finquery = finquery | squery
+                else:
+                    finquery = squery
 
-                return BaseResource.objects\
-                    .filter(uquery).distinct()
+            if finquery is not None:
+                if via_user:
+                    # exclude owners; immutability doesn't matter for them
+                    finexcl = BaseResource.objects.filter(r2urp__privilege=PrivilegeCodes.OWNER,
+                                                          r2urp__user=self.user)
 
-            elif via_group:
-
-                gquery = \
-                    Q(r2grp__privilege=PrivilegeCodes.VIEW,
-                      r2grp__group__g2ugp__user=self.user) | \
-                    Q(raccess__immutable=True,
-                      r2grp__privilege=PrivilegeCodes.CHANGE,
-                      r2grp__group__g2ugp__user=self.user)
-
-                return BaseResource.objects\
-                    .filter(gquery).distinct()
-
+                    return BaseResource.objects.filter(finquery).exclude(pk__in=finexcl).distinct()
+                else:
+                    return BaseResource.objects.filter(finquery)
             else:
-                # nothing matches
                 return BaseResource.objects.none()
 
     #############################################
@@ -3776,11 +3795,11 @@ class UserAccess(models.Model):
     # undo for groups of groups
     ##################################
 
-    def __get_group_undo_groups(self, this_group_s):
+    def __get_group_undo_groups(self, this_group):
         """
         Get a list of groups whose privilege was granted by self and can be undone.
 
-        :param this_group_s: group to check.
+        :param this_group: group to check.
         :returns: QuerySet of groups
 
         "undo_share" differs from "unshare" in that no special privilege is required to
@@ -3790,21 +3809,21 @@ class UserAccess(models.Model):
 
         """
         if __debug__:
-            assert isinstance(this_group_s, Group)
+            assert isinstance(this_group, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        return GroupGroupPrivilege.get_undo_groups(group_s=this_group_s, grantor=self.user)
+        return GroupSubgroupPrivilege.get_undo_groups(group=this_group, grantor=self.user)
 
-    def can_undo_share_group_with_group(self, this_group_s, this_group_w):
+    def can_undo_share_group_with_subgroup(self, this_group, this_subgroup):
         """
         Check that a group share can be undone
 
-        :param this_group_s: shared group to check.
-        :param this_group_w: with group to check.
+        :param this_group: shared group to check.
+        :param this_subgroup: with group to check.
         :returns: Boolean
 
         "undo_share" differs from "unshare" in that no special privilege is required to
@@ -3817,28 +3836,28 @@ class UserAccess(models.Model):
 
             s = some_group
             w = some_other_group
-            if request_user.can_undo_share_group_with_group(s,w)
-                request_user.undo_share_group_with_group(s,w)
+            if request_user.can_undo_share_group_with_subgroup(s,w)
+                request_user.undo_share_group_with_subgroup(s,w)
         """
         if __debug__:
-            assert isinstance(this_group_s, Group)
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_group, Group)
+            assert isinstance(this_subgroup, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Group is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        return this_group_w in self.__get_group_undo_groups(this_group_s)
+        return this_subgroup in self.__get_group_undo_groups(this_group)
 
-    def undo_share_group_with_group(self, this_group_s, this_group_w):
+    def undo_share_group_with_subgroup(self, this_group, this_subgroup):
         """
         Undo a share with a user that was granted by self
 
-        :param this_group_s: group for which to remove privilege.
-        :param this_group_w: user to remove from privilege.
+        :param this_group: group for which to remove privilege.
+        :param this_subgroup: user to remove from privilege.
 
         This routine undoes a privilege previously granted by self.  Only the last granted
         privilege for a group can be undone.  If some other user has granted a new (greater)
@@ -3858,20 +3877,20 @@ class UserAccess(models.Model):
         """
 
         if __debug__:
-            assert isinstance(this_group_s, Group)
-            assert isinstance(this_group_w, Group)
+            assert isinstance(this_group, Group)
+            assert isinstance(this_subgroup, Group)
 
         if not self.user.is_active:
             raise PermissionDenied("Requesting user is not active")
-        if not this_group_s.gaccess.active:
+        if not this_group.gaccess.active:
             raise PermissionDenied("Group is not active")
-        if not this_group_w.gaccess.active:
+        if not this_subgroup.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        qual_undo = self.__get_group_undo_groups(this_group_s)
-        if this_group_w in qual_undo:
-            GroupGroupPrivilege.undo_share(group_s=this_group_s, group_w=this_group_w,
-                                           grantor=self.user)
+        qual_undo = self.__get_group_undo_groups(this_group)
+        if this_subgroup in qual_undo:
+            GroupSubgroupPrivilege.undo_share(group=this_group, subgroup=this_subgroup,
+                                              grantor=self.user)
         else:
             raise PermissionDenied("Group did not grant last privilege")
 
@@ -4262,8 +4281,8 @@ class GroupAccess(models.Model):
         """
 
         return Group.objects.filter(gaccess__active=True,
-                                    w2swp__group_s=self.group,
-                                    w2swp__privilege__lte=PrivilegeCodes.VIEW)
+                                    s2gsp__group=self.group,
+                                    s2gsp__privilege__lte=PrivilegeCodes.VIEW)
 
     @property
     def parent_groups(self):
@@ -4276,8 +4295,8 @@ class GroupAccess(models.Model):
         """
 
         return Group.objects.filter(gaccess__active=True,
-                                    s2swp__group_w=self.group,
-                                    s2swp__privilege__lte=PrivilegeCodes.VIEW)
+                                    g2gsp__subgroup=self.group,
+                                    g2gsp__privilege__lte=PrivilegeCodes.VIEW)
 
     @property
     def view_resources(self):
@@ -4287,7 +4306,7 @@ class GroupAccess(models.Model):
         :return: QuerySet of resource objects held by group.
         """
         return BaseResource.objects.filter(Q(r2grp__group=self.group) |
-                                           Q(r2grp__group__w2swp__group_s=self.group))
+                                           Q(r2grp__group__s2gsp__group=self.group))
 
     @property
     def edit_resources(self):
@@ -4300,8 +4319,8 @@ class GroupAccess(models.Model):
             Q(raccess__immutable=False) &
             Q(r2grp__privilege__lte=PrivilegeCodes.CHANGE) &
             (Q(r2grp__group=self.group) |
-             Q(r2grp__group__w2swp__group_s=self.group,
-               r2grp__group__w2swp__privilege__lte=PrivilegeCodes.CHANGE)))
+             Q(r2grp__group__s2gsp__group=self.group,
+               r2grp__group__s2gsp__privilege__lte=PrivilegeCodes.CHANGE)))
 
     @property
     def group_membership_requests(self):
@@ -4410,10 +4429,10 @@ class GroupAccess(models.Model):
             if not this_thing.gaccess.active:
                 return PrivilegeCodes.NONE
             try:
-                p = GroupGroupPrivilege.objects.get(group_s=self.group,
-                                                    group_w=this_thing)
+                p = GroupSubgroupPrivilege.objects.get(group=self.group,
+                                                       subgroup=this_thing)
                 return p.privilege
-            except GroupGroupPrivilege.DoesNotExist:
+            except GroupSubgroupPrivilege.DoesNotExist:
                 return PrivilegeCodes.NONE
 
 
@@ -4613,9 +4632,6 @@ class ResourceAccess(models.Model):
         if not this_user.is_active:
             raise PermissionDenied("Grantee user is not active")
 
-        if this_user.is_superuser:
-            return PrivilegeCodes.OWNER
-
         # Group privileges must be aggregated
         group_priv = GroupResourcePrivilege.objects\
             .filter(resource=self.resource,
@@ -4627,6 +4643,53 @@ class ResourceAccess(models.Model):
         if response2 is None:
             response2 = PrivilegeCodes.NONE
         return response2
+
+    def __get_raw_subgroup_privilege(self, this_user):
+        """
+        Return the group-based privilege of a specific user over this resource
+
+        :param this_user: the user upon which to report
+        :return: integer privilege 1-4 (PrivilegeCodes)
+
+        This does not account for resource flags.
+        """
+        if __debug__:  # during testing only, check argument types and preconditions
+            assert isinstance(this_user, User)
+
+        if not this_user.is_active:
+            raise PermissionDenied("Grantee user is not active")
+
+        # Group privileges must be aggregated
+        # Subgroups with CHANGE privilege can change resources of group
+        group_change_priv = GroupResourcePrivilege.objects\
+            .filter(resource=self.resource,
+                    group__gaccess__active=True,
+                    group__g2gsp__privilege=PrivilegeCodes.CHANGE,
+                    group__g2gsp__subgroup__g2ugp__user=this_user)\
+            .aggregate(models.Min('privilege'))
+
+        response1 = group_change_priv['privilege__min']
+        if response1 is None:
+            response1 = PrivilegeCodes.NONE
+
+        # Subgroups with VIEW privilege cannot change editable resources of group
+        group_view_priv = GroupResourcePrivilege.objects\
+            .filter(resource=self.resource,
+                    group__gaccess__active=True,
+                    group__g2gsp__privilege=PrivilegeCodes.VIEW,
+                    group__g2gsp__subgroup__g2ugp__user=this_user)\
+            .aggregate(models.Min('privilege'))
+
+        response2 = group_view_priv['privilege__min']
+        if response2 is None:
+            response2 = PrivilegeCodes.NONE
+
+        # squash change privilege to view if not granted through subgroup share
+        if response2 == PrivilegeCodes.CHANGE:
+            response2 = PrivilegeCodes.VIEW
+
+        # most permissive (lowest) privilege is effective.
+        return min(response1, response2)
 
     def get_effective_user_privilege(self, this_user):
         """
@@ -4653,6 +4716,21 @@ class ResourceAccess(models.Model):
         This accounts for resource flags by revoking CHANGE on immutable resources.
         """
         group_priv = self.__get_raw_group_privilege(this_user)
+        if self.immutable and group_priv == PrivilegeCodes.CHANGE:
+            return PrivilegeCodes.VIEW
+        else:
+            return group_priv
+
+    def get_effective_subgroup_privilege(self, this_user):
+        """
+        Return the effective subgroup-based privilege of a specific user over this resource
+
+        :param this_user: the user upon which to report
+        :return: integer privilege 1-4 (PrivilegeCodes)
+
+        This accounts for resource flags by revoking CHANGE on immutable resources.
+        """
+        group_priv = self.__get_raw_subgroup_privilege(this_user)
         if self.immutable and group_priv == PrivilegeCodes.CHANGE:
             return PrivilegeCodes.VIEW
         else:
@@ -4691,7 +4769,8 @@ class ResourceAccess(models.Model):
 
         user_priv = self.get_effective_user_privilege(this_user)
         group_priv = self.get_effective_group_privilege(this_user)
-        return min(user_priv, group_priv)
+        subgroup_priv = self.get_effective_subgroup_privilege(this_user)
+        return min(user_priv, group_priv, subgroup_priv)
 
     @property
     def sharing_status(self):
@@ -4704,3 +4783,50 @@ class ResourceAccess(models.Model):
             return "discoverable"
         else:
             return "private"
+
+
+def access_permissions(u, r):
+    """ explain access for a specific user and resource """
+    results = list()
+    for q in UserResourcePrivilege.objects.filter(user=u, resource=r):
+        results.append((q.privilege, q,))
+    for q in UserGroupPrivilege.objects.filter(user=u, group__g2grp__resource=r):
+        for q2 in GroupResourcePrivilege.objects.filter(group=q.group, resource=r):
+            results.append((q2.privilege, q, q2,))
+    for q in UserGroupPrivilege.objects.filter(user=u, group__s2gsp__group__g2grp__resource=r):
+        # subgroup is treated as member of group
+        for q2 in GroupSubgroupPrivilege.objects.filter(subgroup=q.group, group__g2grp__resource=r):
+            for q3 in GroupResourcePrivilege.objects.filter(group=q2.group, resource=r):
+                results.append((max(q2.privilege, q3.privilege), q, q2, q3,))
+    return results
+
+
+def access_provenance(u, r):
+    verbs = ["undefined", "owns", "can edit", "can view", "cannot access"]
+    e = access_permissions(u, r)
+    output = "user {} {} resource '{}'\n"\
+        .format(u.username, verbs[r.raccess.get_effective_privilege(u)], r.title)
+    if r.raccess.immutable:
+        output += "    '{}' is immutable: edit is replaced with view\n".format(r.title)
+    for tuple in e:
+        elements = list(tuple)
+        elements.pop(0)  # remove privilege from description
+        first = elements.pop(0)
+        if elements:
+            last = elements[-1]
+        else:
+            last = first
+        if isinstance(first, UserResourcePrivilege):
+            out = "  * user {} {} resource.\n".format(first.user.username, verbs[first.privilege])
+            output += out
+        else:  # isinstance(first, UserGroupPrivilege):
+            out = "  * user {} is in group {},\n".format(first.user.username, first.group.name)
+            second = elements.pop(0)
+            if isinstance(second, GroupResourcePrivilege):
+                out += "    which {} resource.\n".format(verbs[second.privilege])
+            else:  # isinstance(second, GroupSubgroupPrivilege):
+                out += "    which {} resources of group {},\n".format(verbs[second.privilege],
+                                                                      second.group.name)
+                out += "    which {} resource.\n".format(verbs[last.privilege])
+            output += out
+    return output
