@@ -48,7 +48,7 @@ from django.db import transaction
 from django.core.exceptions import PermissionDenied
 
 from hs_core.models import BaseResource
-# from pprint import pprint
+from pprint import pprint
 
 ######################################
 # Access control subsystem
@@ -2077,8 +2077,6 @@ class UserAccess(models.Model):
         elif subgroup is not None:
             if not subgroup.gaccess.active:
                 raise PermissionDenied("Group is not active")
-            if this_privilege == PrivilegeCodes.OWNER:
-                raise PermissionDenied("Groups cannot own groups")
 
         try:
             self.__check_share_group(this_group, this_privilege, user=user, subgroup=subgroup)
@@ -2124,12 +2122,18 @@ class UserAccess(models.Model):
         else:
             grantee_priv = PrivilegeCodes.NONE
 
-        if subgroup is not None and this_privilege == PrivilegeCodes.OWNER:
-            raise PermissionDenied("Groups cannot own objects")
-
         # check for user authorization
         if self.user.is_superuser:
             pass  # admins can do anything
+
+        elif subgroup is not None:  # share only for owners, so shareable flag is not relevant
+            # only owners of the original groups can share a group with a subgroup
+            if this_privilege == PrivilegeCodes.OWNER:
+                raise PermissionDenied("Groups cannot own subgroups")
+            if not self.user.uaccess.owns_group(subgroup):
+                raise PermissionDenied("User must own the group to be shared")
+            if not self.user.uaccess.owns_group(this_group): 
+                raise PermissionDenied("User must own the group that will have a subgroup")
 
         elif grantor_priv == PrivilegeCodes.OWNER:
             pass  # owner can do anything
@@ -2148,15 +2152,6 @@ class UserAccess(models.Model):
 
                 if this_privilege > grantee_priv and user != self.user:
                     raise PermissionDenied("Non-owners cannot decrease privileges for others")
-
-            if subgroup is not None:
-                # only owners of the original group can share a group with a group
-                if not self.user.uaccess.owns_group(subgroup):
-                    raise PermissionDenied("User must own the group to be shared")
-                if this_privilege < grantor_priv:
-                    raise PermissionDenied("Insufficient privilege to share at this privilege")
-                if this_privilege == PrivilegeCodes.OWNER:
-                    raise PermissionDenied("Groups cannot own groups")
 
         else:
             raise PermissionDenied("User must own group or have sharing privilege")
@@ -2473,26 +2468,7 @@ class UserAccess(models.Model):
         If this returns False, UserAccess.share_group_with_subgroup will raise an exception
         for the corresponding arguments -- *guaranteed*.
         """
-        try:
-            self.__check_share_group_with_subgroup(this_group, this_subgroup, this_privilege)
-            return True
-        except PermissionDenied:
-            return False
-
-    def __check_share_group_with_subgroup(self, this_group, this_subgroup, this_privilege):
-        """
-
-        Raise exception if a given user cannot share this group with a given privilege
-        to a specific user.
-
-        :param this_group: Group to be shared.
-        :param this_subgroup: Group with which to share.
-        :param this_privilege: privilege to assign
-        :return: True if sharing is possible, otherwise raise an exception.
-
-        This determines whether the current user can share a group with a specific user.
-        """
-        return self.__check_share_group(this_group, this_privilege, subgroup=this_subgroup)
+        return self.can_share_group(this_group, this_privilege, subgroup=this_subgroup)
 
     def share_group_with_subgroup(self, this_group, this_subgroup,
                                this_privilege=PrivilegeCodes.VIEW):
@@ -2540,7 +2516,7 @@ class UserAccess(models.Model):
             raise PermissionDenied("Group with which to share is not active")
 
         # raise a PermissionDenied exception if user self is not allowed to do this.
-        self.__check_share_group_with_subgroup(this_group, this_subgroup, this_privilege)
+        self.__check_share_group(this_group, this_privilege, subgroup=this_subgroup)
 
         GroupSubgroupPrivilege.share(group=this_group, subgroup=this_subgroup,
                                      grantor=self.user, privilege=this_privilege)
@@ -3052,6 +3028,8 @@ class UserAccess(models.Model):
         If we made it subject to immutability, no resources could be made not immutable again.
         However, it should account for whether a resource is published, and return false if
         a resource is published.
+
+        This is called from hs_core/views/authorize to authorize actions. 
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -3075,6 +3053,7 @@ class UserAccess(models.Model):
         * Thus, this returns True for many public resources that are not returned from
           view_resources.
         * This is not sensitive to the setting for the "immutable" flag. That only affects editing.
+        * This is called from hs_core/views/authorize to authorize actions. 
 
         """
         if __debug__:  # during testing only, check argument types and preconditions
@@ -3114,6 +3093,7 @@ class UserAccess(models.Model):
 
         * *Even immutable resources can be deleted.*
         * A resource must be published for deletion to be denied.
+        * This is called from hs_core/views/authorize to authorize actions. 
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -3142,6 +3122,7 @@ class UserAccess(models.Model):
         Several conditions require knowledge of the user with which the
         resource is to be shared.  These are handled optionally.
 
+        This is called from hs_core/views/authorize to authorize actions. 
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -4808,11 +4789,28 @@ def access_permissions(u, r):
     for q in UserGroupPrivilege.objects.filter(user=u, group__g2grp__resource=r):
         for q2 in GroupResourcePrivilege.objects.filter(group=q.group, resource=r):
             results.append((q2.privilege, q, q2,))
+    # subgroup is treated as member of group
     for q in UserGroupPrivilege.objects.filter(user=u, group__s2gsp__group__g2grp__resource=r):
-        # subgroup is treated as member of group
         for q2 in GroupSubgroupPrivilege.objects.filter(subgroup=q.group, group__g2grp__resource=r):
             for q3 in GroupResourcePrivilege.objects.filter(group=q2.group, resource=r):
                 results.append((max(q2.privilege, q3.privilege), q, q2, q3,))
+    # group is treated as a member of subgroup, with view-only privilege
+    for q in UserGroupPrivilege.objects.filter(user=u, group__g2gsp__subgroup__g2grp__resource=r):
+        for q2 in GroupSubgroupPrivilege.objects.filter(group=q.group, group__g2grp__resource=r):
+            for q3 in GroupResourcePrivilege.objects.filter(group=q2.subgroup, resource=r):
+                results.append(PrivilegeCodes.VIEW, q, q2, q3,))
+    # peer subgroups are given view privilege
+    for q in UserGroupPrivilege.objects.filter(
+            user=u, 
+            group__s2gsp__group__g2gsp__subgroup__g2grp__resource=r): 
+        for q2 in GroupSubgroupPrivilege.objects.filter(
+                group=q.group, 
+                group__g2gsp__subgroup__g2grp__resource=r):
+            for q3 in GroupSubgroupPrivilege.objects.filter( 
+                    subgroup=q2.subgroup, 
+                    g2grp__resource=r):
+                for q4 in GroupResourcePrivilege.object.filter(group=q3.subgroup, resource=r): 
+                    results.append((PrivilegeCodes,VIEW, q, q2, q3, q4,))
     return results
 
 
@@ -4826,22 +4824,18 @@ def access_provenance(u, r):
     for tuple in e:
         elements = list(tuple)
         elements.pop(0)  # remove privilege from description
-        first = elements.pop(0)
-        if elements:
-            last = elements[-1]
-        else:
-            last = first
-        if isinstance(first, UserResourcePrivilege):
-            out = "  * user {} {} resource.\n".format(first.user.username, verbs[first.privilege])
-            output += out
-        else:  # isinstance(first, UserGroupPrivilege):
-            out = "  * user {} is in group {},\n".format(first.user.username, first.group.name)
-            second = elements.pop(0)
-            if isinstance(second, GroupResourcePrivilege):
-                out += "    which {} resource.\n".format(verbs[second.privilege])
-            else:  # isinstance(second, GroupSubgroupPrivilege):
-                out += "    which {} resources of group {},\n".format(verbs[second.privilege],
-                                                                      second.group.name)
-                out += "    which {} resource.\n".format(verbs[last.privilege])
-            output += out
+        for e in elements: 
+            if isinstance(e, UserResourcePrivilege):
+                out = "  * user {} {} resource.\n".format(e.user.username, verbs[e.privilege])
+                output += out
+            elif isinstance(e, UserGroupPrivilege):
+                out = "  * user {} is in group {},\n".format(e.user.username, e.group.name)
+                output += out
+            elif isinstance(e, GroupResourcePrivilege):
+                out += "    which {} resource.\n".format(verbs[e.privilege])
+                output += out
+            elif isinstance(second, GroupSubgroupPrivilege):
+                out += "    which {} resources of group {},\n".format(verbs[e.privilege],
+                                                                      e.group.name)
+                output += out
     return output
