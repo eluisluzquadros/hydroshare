@@ -48,7 +48,7 @@ from django.db import transaction
 from django.core.exceptions import PermissionDenied
 
 from hs_core.models import BaseResource
-from pprint import pprint
+# from pprint import pprint
 
 ######################################
 # Access control subsystem
@@ -2132,7 +2132,7 @@ class UserAccess(models.Model):
                 raise PermissionDenied("Groups cannot own subgroups")
             if not self.user.uaccess.owns_group(subgroup):
                 raise PermissionDenied("User must own the group to be shared")
-            if not self.user.uaccess.owns_group(this_group): 
+            if not self.user.uaccess.owns_group(this_group):
                 raise PermissionDenied("User must own the group that will have a subgroup")
 
         elif grantor_priv == PrivilegeCodes.OWNER:
@@ -2443,7 +2443,7 @@ class UserAccess(models.Model):
     ####################################
 
     def can_share_group_with_subgroup(self, this_group, this_subgroup,
-                                   this_privilege=PrivilegeCodes.VIEW):
+                                      this_privilege=PrivilegeCodes.VIEW):
         """
         Return True if a given user can share this group with a specified group
         with a given privilege.
@@ -2458,7 +2458,8 @@ class UserAccess(models.Model):
         Usage:
         ------
 
-            if my_user.can_share_group_with_subgroup(some_group, some_subgroup, PrivilegeCodes.VIEW):
+            if my_user.can_share_group_with_subgroup(some_group, some_subgroup,
+                        PrivilegeCodes.VIEW):
                 # ...time passes, forms are created, requests are made...
                 my_user.share_group_with_subgroup(some_group, some_subgroup, PrivilegeCodes.VIEW)
 
@@ -2471,7 +2472,7 @@ class UserAccess(models.Model):
         return self.can_share_group(this_group, this_privilege, subgroup=this_subgroup)
 
     def share_group_with_subgroup(self, this_group, this_subgroup,
-                               this_privilege=PrivilegeCodes.VIEW):
+                                  this_privilege=PrivilegeCodes.VIEW):
         """
         :param this_group: Group to be shared.
         :param this_subgroup: Group with which to share.
@@ -2751,7 +2752,7 @@ class UserAccess(models.Model):
         # This is a mouthful.
         # a resource is editable if
         # 1. it's shared with the user and editable.
-        # 2. it's shared with a group that has edit privilege and contains the user, 
+        # 2. it's shared with a group that has edit privilege and contains the user,
         # 3. it's shared with a group that has edit privilege and a subgroup that contains the user,
         #    and the subgroup share preserves edit
 
@@ -2908,7 +2909,7 @@ class UserAccess(models.Model):
                     finquery = gquery
 
             # subgroup permission is VIEW if at least one of the two permissions is VIEW
-            # or if the resource is immutable and there is any path to it. 
+            # or if the resource is immutable and there is any path to it.
             if via_subgroup:
                 squery = \
                     Q(r2grp__group__gaccess__active=True,
@@ -3013,6 +3014,14 @@ class UserAccess(models.Model):
                                                  group__g2ugp__user=self.user).exists():
             return True
 
+        # if a supergroup has CHANGE and the group has CHANGE,
+        # then the supergroup can change it.
+        if GroupResourcePrivilege.objects.filter(
+                resource=this_resource,
+                privilege=PrivilegeCodes.CHANGE,
+                group__s2gsp__privilege=PrivilegeCodes.CHANGE,
+                group__s2gsp__group__g2ugp__user=self.user).exists():
+            return True
         return False
 
     def can_change_resource_flags(self, this_resource):
@@ -3029,7 +3038,7 @@ class UserAccess(models.Model):
         However, it should account for whether a resource is published, and return false if
         a resource is published.
 
-        This is called from hs_core/views/authorize to authorize actions. 
+        This is called from hs_core/views/authorize to authorize actions.
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -3053,7 +3062,9 @@ class UserAccess(models.Model):
         * Thus, this returns True for many public resources that are not returned from
           view_resources.
         * This is not sensitive to the setting for the "immutable" flag. That only affects editing.
-        * This is called from hs_core/views/authorize to authorize actions. 
+        * This is called from hs_core/views/authorize to authorize actions.
+        * This includes group-to-subgroup, subgroup-to-group, and subgroup-to-group-to-subgroup
+          permissions
 
         """
         if __debug__:  # during testing only, check argument types and preconditions
@@ -3071,13 +3082,28 @@ class UserAccess(models.Model):
             return True
 
         if UserResourcePrivilege.objects.filter(resource=this_resource,
-                                                privilege__lte=PrivilegeCodes.VIEW,
                                                 user=self.user).exists():
             return True
 
         if GroupResourcePrivilege.objects.filter(resource=this_resource,
-                                                 privilege__lte=PrivilegeCodes.VIEW,
                                                  group__g2ugp__user=self.user).exists():
+            return True
+
+        # group-subgroup and subgroup-group privilege
+        if UserGroupPrivilege.objects\
+                .filter(Q(user=self.user, group__s2gsp__group__g2grp__resource=this_resource) |
+                        Q(user=self.user, group__g2gsp__subgroup__g2grp__resource=this_resource))\
+                .exists():
+            return True
+
+        # subgroup-group-subgroup (peer) privilege
+        # prevent redundant B to A to B privilege by checking for B privilege alone.
+        if UserGroupPrivilege.objects\
+                .filter(user=self.user,
+                        group__s2gsp__group__g2gsp__subgroup__g2grp__resource=this_resource)\
+                .exclude(pk__in=UserGroupPrivilege.objects
+                                .filter(user=self.user, group__g2grp__resource=this_resource))\
+                .exists():
             return True
 
         return False
@@ -3093,7 +3119,7 @@ class UserAccess(models.Model):
 
         * *Even immutable resources can be deleted.*
         * A resource must be published for deletion to be denied.
-        * This is called from hs_core/views/authorize to authorize actions. 
+        * This is called from hs_core/views/authorize to authorize actions.
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -3122,7 +3148,7 @@ class UserAccess(models.Model):
         Several conditions require knowledge of the user with which the
         resource is to be shared.  These are handled optionally.
 
-        This is called from hs_core/views/authorize to authorize actions. 
+        This is called from hs_core/views/authorize to authorize actions.
         """
         if __debug__:  # during testing only, check argument types and preconditions
             assert isinstance(this_resource, BaseResource)
@@ -3308,8 +3334,7 @@ class UserAccess(models.Model):
         if not self.can_share_resource(this_resource, this_privilege):
             raise PermissionDenied("User has insufficient sharing privilege over resource")
 
-        access_group = this_group.gaccess
-        if self.user not in access_group.members and not self.user.is_superuser:
+        if self.user not in this_group.gaccess.members and not self.user.is_superuser:
             raise PermissionDenied("User is not a member of the group and not an admin")
 
         # enforce non-idempotence for unprivileged users
@@ -4415,8 +4440,8 @@ class GroupAccess(models.Model):
         """
         Return cumulative privilege for a subgroup over a group.
 
-        This does not directly grant privilege to a subgroup, but instead, 
-        potentially overrides the privilege of the subgroup over group resources. 
+        This does not directly grant privilege to a subgroup, but instead,
+        potentially overrides the privilege of the subgroup over group resources.
 
         :param this_subgroup: subgroup to check
         :return: Privilege code 1-4
@@ -4783,59 +4808,141 @@ class ResourceAccess(models.Model):
 
 def access_permissions(u, r):
     """ explain access for a specific user and resource """
+    # verbs = ["undefined", "owns", "can edit", "can view", "cannot access"]
     results = list()
+    # user-resource privilege
+    # if UserResourcePrivilege.objects.filter(user=u, resource=r).exists():
+    #     print("{} has direct user-resource privilege over '{}'"
+    #           .format(u.username, r.title))
     for q in UserResourcePrivilege.objects.filter(user=u, resource=r):
-        results.append((q.privilege, q,))
+        # print("  * {} {} '{}'".format(u.username, verbs[q.privilege], r.title))
+        results.append((q,))
+
+    # if UserGroupPrivilege.objects.filter(user=u, group__g2grp__resource=r).exists():
+    #     print("{} has direct user-group-resource privilege over '{}'"
+    #           .format(u.username, r.title))
+
     for q in UserGroupPrivilege.objects.filter(user=u, group__g2grp__resource=r):
+        # print("    group is {}".format(q.group.name))
         for q2 in GroupResourcePrivilege.objects.filter(group=q.group, resource=r):
-            results.append((q2.privilege, q, q2,))
-    # subgroup is treated as member of group
-    for q in UserGroupPrivilege.objects.filter(user=u, group__s2gsp__group__g2grp__resource=r):
-        for q2 in GroupSubgroupPrivilege.objects.filter(subgroup=q.group, group__g2grp__resource=r):
-            for q3 in GroupResourcePrivilege.objects.filter(group=q2.group, resource=r):
-                results.append((max(q2.privilege, q3.privilege), q, q2, q3,))
-    # group is treated as a member of subgroup, with view-only privilege
+            # print("    resource is '{}'".format(q2.resource.title))
+            # print("  * {} {} {}, ".format(q.user.username, verbs[q.privilege], q.group.name))
+            # print("    which {} resource '{}'".format(verbs[q2.privilege], q2.resource.title))
+            results.append((q, q2,))
+
+    # members of supergroup can view subgroup
+    # if UserGroupPrivilege.objects\
+    #         .filter(user=u, group__g2gsp__subgroup__g2grp__resource=r)\
+    #         .exists():
+    #     print("{} has user-group-subgroup-resource privilege over '{}'"
+    #           .format(u.username, r.title))
     for q in UserGroupPrivilege.objects.filter(user=u, group__g2gsp__subgroup__g2grp__resource=r):
-        for q2 in GroupSubgroupPrivilege.objects.filter(group=q.group, group__g2grp__resource=r):
+        # print("    supergroup is {}".format(q.group.name))
+        for q2 in GroupSubgroupPrivilege.objects.filter(group=q.group,
+                                                        subgroup__g2grp__resource=r):
+            # print("    subgroup is {}".format(q2.subgroup.name))
             for q3 in GroupResourcePrivilege.objects.filter(group=q2.subgroup, resource=r):
-                results.append(PrivilegeCodes.VIEW, q, q2, q3,))
+                # print("    resource is '{}'".format(q3.resource.title))
+                # print("  * {} {} {}, ".format(q.user.username, verbs[q.privilege], q.group.name))
+                # print("    which {} subgroup {}".format(verbs[q2.privilege], q2.subgroup.name))
+                # print("    which {} resource '{}'".format(verbs[q3.privilege], q3.resource.title))
+                results.append((q, q2, q3,))
+
+    # members of subgroup can view supergroup
+    # if UserGroupPrivilege.objects.filter(user=u, group__s2gsp__group__g2grp__resource=r).exists():
+    #     print("{} has user-subgroup-group-resource privilege over '{}'"
+    #           .format(u.username, r.title))
+    for q in UserGroupPrivilege.objects.filter(user=u, group__s2gsp__group__g2grp__resource=r):
+        # print("    subgroup is {}".format(q.group))
+        for q2 in GroupSubgroupPrivilege.objects.filter(subgroup=q.group,
+                                                        group__g2grp__resource=r):
+            # print("    supergroup is {}".format(q2.group))
+            for q3 in GroupResourcePrivilege.objects.filter(group=q2.group, resource=r):
+                # print("    resource is '{}'".format(q3.resource.title))
+                # print("  * {} {} {}, ".format(q.user.username, verbs[q.privilege], q.group.name))
+                # print("    which {} supergroup {}".format(verbs[PrivilegeCodes.VIEW],
+                #                                           q2.group.name))
+                # print("    which {} resource '{}'".format(verbs[q3.privilege], q3.resource.title))
+                results.append((q, q2, q3,))
+
     # peer subgroups are given view privilege
-    for q in UserGroupPrivilege.objects.filter(
-            user=u, 
-            group__s2gsp__group__g2gsp__subgroup__g2grp__resource=r): 
+    # This logic is complex. We want to prevent returns to the subgroup from which we originated.
+    # this will only happen if we start at a subgroup with permission. So we prohibit that subcase
+    # if UserGroupPrivilege.objects\
+    #         .filter(user=u, group__s2gsp__group__g2gsp__subgroup__g2grp__resource=r)\
+    #         .exclude(pk__in=UserGroupPrivilege.objects.filter(user=u,
+    #                                                           group__g2grp__resource=r))\
+    #         .exists():
+    #     print("{} has user-subgroup-group-subgroup-resource privilege over '{}'"
+    #           .format(u.username, r.title))
+    for q in UserGroupPrivilege.objects\
+            .filter(user=u, group__s2gsp__group__g2gsp__subgroup__g2grp__resource=r)\
+            .exclude(pk__in=UserGroupPrivilege.objects.filter(user=u,
+                                                              group__g2grp__resource=r)):
+        # print("    subgroup is {}".format(q.group.name))
         for q2 in GroupSubgroupPrivilege.objects.filter(
-                group=q.group, 
+                subgroup=q.group,
                 group__g2gsp__subgroup__g2grp__resource=r):
-            for q3 in GroupSubgroupPrivilege.objects.filter( 
-                    subgroup=q2.subgroup, 
-                    g2grp__resource=r):
-                for q4 in GroupResourcePrivilege.object.filter(group=q3.subgroup, resource=r): 
-                    results.append((PrivilegeCodes,VIEW, q, q2, q3, q4,))
+            # print("    supergroup is {}".format(q2.group.name))
+            for q3 in GroupSubgroupPrivilege.objects.filter(
+                    group=q2.group,
+                    subgroup__g2grp__resource=r):
+                # print("    subgroup is {}".format(q3.subgroup.name))
+                for q4 in GroupResourcePrivilege.objects\
+                          .filter(group=q3.subgroup, resource=r):
+                    # print("    resource is '{}'".format(q4.resource.title))
+                    # print("  * {} {} {}, ".format(q.user.username, verbs[q.privilege],
+                    #                               q.group.name))
+                    # print("    which {} supergroup {}".format(verbs[PrivilegeCodes.VIEW],
+                    #                                           q2.group.name))
+                    # print("    which {} subgroup {}".format(verbs[PrivilegeCodes.VIEW],
+                    #                                         q3.subgroup.name))
+                    # print("    which {} resource '{}'".format(verbs[PrivilegeCodes.VIEW],
+                    #                                           q4.resource.title))
+                    results.append((q, q2, q3, q4,))
     return results
 
 
 def access_provenance(u, r):
     verbs = ["undefined", "owns", "can edit", "can view", "cannot access"]
     e = access_permissions(u, r)
+    # pprint(e)
     output = "user {} {} resource '{}'\n"\
         .format(u.username, verbs[r.raccess.get_effective_privilege(u)], r.title)
     if r.raccess.immutable:
         output += "    '{}' is immutable: edit is replaced with view\n".format(r.title)
     for tuple in e:
         elements = list(tuple)
-        elements.pop(0)  # remove privilege from description
-        for e in elements: 
+        preve = None
+        for e in elements:
             if isinstance(e, UserResourcePrivilege):
-                out = "  * user {} {} resource.\n".format(e.user.username, verbs[e.privilege])
-                output += out
+                output += "  * user {} {} resource.\n".format(e.user.username, verbs[e.privilege])
             elif isinstance(e, UserGroupPrivilege):
-                out = "  * user {} is in group {},\n".format(e.user.username, e.group.name)
-                output += out
+                output += "  * user {} is in group {},\n".format(e.user.username, e.group.name)
             elif isinstance(e, GroupResourcePrivilege):
-                out += "    which {} resource.\n".format(verbs[e.privilege])
-                output += out
-            elif isinstance(second, GroupSubgroupPrivilege):
-                out += "    which {} resources of group {},\n".format(verbs[e.privilege],
-                                                                      e.group.name)
-                output += out
+                output += "    which {} resource.\n".format(verbs[e.privilege])
+            elif isinstance(e, GroupSubgroupPrivilege):
+                if preve.group == e.subgroup:
+                    output += "    which {} resources of supergroup {},\n"\
+                              .format(verbs[e.privilege], e.group.name)
+                else:  # preve.group=e.group:
+                    output += "    which {} resources of subgroup {},\n"\
+                              .format(verbs[e.privilege], e.group.name)
+            preve = e
+
     return output
+
+# User UserResourcePrivilege,
+#       Resource
+# User UserGroupPrivilege
+#       (group=group) GroupResourcePrivilege
+#       Resource
+# User UserGroupPrivilege
+#       (group=subgroup) GroupSubgroupPrivilege
+#       (group=group) GroupResourcePrivilege
+#       Resource
+# User UserGroupPrivilege
+#       (group=subgroup) GroupSubgroupPrivilege
+#       (subgroup=group) GroupSubgroupPrivilege
+#       (group=subgroup) GroupResourcePrivilege
+#       Resource
