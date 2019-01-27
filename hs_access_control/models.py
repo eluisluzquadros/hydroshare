@@ -95,7 +95,7 @@ class PrivilegeCodes(object):
     NAMES = ('Unspecified', 'Owner', 'Change', 'View', 'None')
 
 
-class Community(models.model):
+class Community(models.Model):
     """ a placeholder class for a community of groups """
     name = models.TextField(null=False, blank=False)
     description = models.TextField(null=False, blank=False)
@@ -412,33 +412,33 @@ class UserCommunityPrivilege(PrivilegeBase):
     community = models.ForeignKey(Community,
                                   null=False,
                                   editable=False,
-                                  related_name='c2gcp',
+                                  related_name='c2ucp',
                                   help_text='community to be granted privilege')
 
-    group = models.ForeignKey(Group,
-                              null=False,
-                              editable=False,
-                              related_name='g2gcp',
-                              help_text='group providing privilege')
+    user = models.ForeignKey(User,
+                             null=False,
+                             editable=False,
+                             related_name='u2ucp',
+                             help_text='group providing privilege')
 
     grantor = models.ForeignKey(User,
                                 null=False,
                                 editable=False,
-                                related_name='x2swp',
+                                related_name='x2ucp',
                                 help_text='grantor of privilege')
 
     class Meta:
-        unique_together = ('community', 'group')
+        unique_together = ('community', 'user')
 
     def __str__(self):
         """ Return printed depiction for debugging """
         return str.format("<community '{}' (id={}) holds {} ({})" +
-                          " over group '{}' (id={})" +
+                          " over user '{}' (id={})" +
                           " via grantor '{}' (id={})>",
                           str(self.community.name), str(self.community.id),
                           PrivilegeCodes.NAMES[self.privilege],
                           str(self.privilege),
-                          str(self.group.name), str(self.group.id),
+                          str(self.user.username), str(self.user.id),
                           str(self.grantor.username), str(self.grantor.id))
 
     @classmethod
@@ -454,7 +454,7 @@ class UserCommunityPrivilege(PrivilegeBase):
         :param grantor: user who requested privilege.
 
         Usage:
-            UserCommunityPrivilege.share(group={X}, community={Y}, privilege={Z}, grantor={W}
+            UserCommunityPrivilege.share(user={X}, community={Y}, privilege={Z}, grantor={W}
         """
         if __debug__:
             assert 'community' in kwargs
@@ -483,7 +483,7 @@ class UserCommunityPrivilege(PrivilegeBase):
         :param grantor: user who requested privilege.
 
         Usage:
-            UserCommunityPrivilege.unshare(group={X}, user={Y}, grantor={W})
+            UserCommunityPrivilege.unshare(user={X}, user={Y}, grantor={W})
 
         Important: this does not guard against removing a single owner.
 
@@ -566,12 +566,28 @@ class UserCommunityPrivilege(PrivilegeBase):
 class GroupCommunityPrivilege(PrivilegeBase):
     """ Privileges of a group over a community
 
-    Having any privilege over a community is synonymous with membership.
+    This encodes the privileges of a specific group over a community.
+
+    * VIEW privilege means the group can view resources of the community.
+    * CHANGE privilege means the group can edit resources that are editable to any group
+      in the community.
+
+    These are outgoing privileges (Group to Community).
+
+    Incoming privileges (Community to group) are handled separately via the
+    "allow_view" boolean flag.
+
+    * If allow_view is True, the resources accessible to the group
+      are accessible to the groups in the community that have VIEW privilege.
+    * If allow_view is False, resources accessible to the group
+      are hidden from the groups of the community with view privilege.
+    * This does not affect groups of the community with CHANGE privilege, which have
+      in essence superuser access to the resources of the community member groups.
 
     There is a reasonable meaning to PrivilegeCodes.NONE, which is to be
-    a group member without the ability to discover the identities of other
-    group members.  However, this is currently disallowed. It is used in the
-    provenance models to record removing a privilege.
+    a community member without the ability to view anything in the community.
+    However, this is currently disallowed. It is used in the provenance models
+    to record removing a privilege.
     """
 
     privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
@@ -597,6 +613,11 @@ class GroupCommunityPrivilege(PrivilegeBase):
                                 editable=False,
                                 related_name='x2swp',
                                 help_text='grantor of privilege')
+
+    allow_view = models.BooleanField(null=False,
+                                     editable=False,
+                                     default=True,
+                                     help_text="whether to allow view for group's resources")
 
     class Meta:
         unique_together = ('community', 'group')
@@ -2070,11 +2091,12 @@ class UserAccess(models.Model):
                 # everyone else can see only active groups they are in
                 Q(gaccess__active=True,
                   g2ugp__user=self.user) |
-                # if user has access to a community, grant access to groups in community
-                Q(gaccess__active=True,
-                  g2ucp__community__c2ucp__user=self.user) |
+                ### FUTURE ### # user access to community groups
+                ### FUTURE ### Q(gaccess__active=True,
+                ### FUTURE ###   g2ucp__community__c2ucp__user=self.user) |
                 # if user has access to a group in a community, grant access to whole community
                 Q(gaccess__active=True,
+                  g2gcp__community__c2gcp__allow_view=True,
                   g2gcp__community__c2gcp__group__gaccess__active=True,
                   g2gcp__community__c2gcp__group__g2ugp__user=self.user)).distinct()
 
@@ -2998,13 +3020,12 @@ class UserAccess(models.Model):
                     # groups of which this user is a direct view member
                     (Q(g2ugp__user=self.user,
                        g2ugp__privilege=PrivilegeCodes.VIEW) |
-                     # groups in a community for which there is view privilege for this user
-                     # note that the privilege of the group in the community is not relevant.
-                     # It is the privilege of the user over the community that matters.
-                     Q(g2gcp__community__c2ucp__user=self.user,
-                       g2gcp__community__c2ucp__privilege=PrivilegeCodes.VIEW) |
+                     ### FUTURE ### # user individual privilege over community
+                     ### FUTURE ### Q(g2gcp__community__c2ucp__user=self.user,
+                     ### FUTURE ### g2gcp__community__c2ucp__privilege=PrivilegeCodes.VIEW) |
                      # community privilege of group is VIEW
                      Q(g2gcp__group__gaccess__active=True,
+                       g2gcp__community__c2gcp__allow_view=True,
                        g2gcp__community__c2gcp__group__gaccess__active=True,
                        g2gcp__community__c2gcp__group__u2ugp__user=self.user,
                        g2gcp__community__c2gcp__privilege=PrivilegeCodes.VIEW))).distinct()
@@ -3085,11 +3106,12 @@ class UserAccess(models.Model):
             # access via a group
             Q(r2grp__group__gaccess__active=True,
               r2grp__group__g2ugp__user=self.user) |
-            # access via a group in a community to which the user has direct access
-            Q(r2grp__group__gaccess__active=True,
-              r2grp__group__g2gcp__community__c2ucp__user=self.user) |
+            ### FUTURE ### # access via a group in a community to which the user has direct access
+            ### FUTURE ### Q(r2grp__group__gaccess__active=True,
+            ### FUTURE ###   r2grp__group__g2gcp__community__c2ucp__user=self.user) |
             # access via a group in a community to of which the user is a member
             Q(r2grp__group__gaccess__active=True,
+              r2grp__group__g2gcp__community__c2gcp__allow_view=True,
               r2grp__group__g2gcp__community__c2gcp__group__gaccess__active=True,
               r2grp__group__g2gcp__community__c2gcp__group__u2ugp__user=self.user)
             ).distinct()
@@ -3139,17 +3161,19 @@ class UserAccess(models.Model):
              Q(r2grp__group__gaccess__active=True,
                r2grp__group__g2ugp__user=self.user,
                r2grp__privilege=PrivilegeCodes.CHANGE) |
+             ### FUTURE ### # user has access through direct community membership
+             ### FUTURE ### Q(r2grp__group__gaccess__active=True,
+             ### FUTURE ###   r2grp__privilege=PrivilegeCodes.CHANGE,
+             ### FUTURE ###   r2grp__group__g2gcp__community__c2ucp__user=self.user,
+             ### FUTURE ###   r2grp__group__g2gcp__community__c2ucp__privilege=
+             ### FUTURE ###       PrivilegeCodes.CHANGE)))
              # user has access through being a member of a group in the same community
+             # Note: CHANGE privilege overrides allow_view flag.
              Q(r2grp__group__gaccess__active=True,
                r2grp__privilege=PrivilegeCodes.CHANGE,
                r2grp__group__g2gcp__community__c2gcp__group__gaccess__active=True,
                r2grp__group__g2gcp__community__c2gcp__group__g2ugp__user=self.user,
-               r2grp__group__g2gcp__community__c2gcp__privilege=PrivilegeCodes.CHANGE) |
-             # user has access through direct community membership
-             Q(r2grp__group__gaccess__active=True,
-               r2grp__privilege=PrivilegeCodes.CHANGE,
-               r2grp__group__g2gcp__community__c2ucp__user=self.user,
-               r2grp__group__g2gcp__community__c2ucp__privilege=PrivilegeCodes.CHANGE)))\
+               r2grp__group__g2gcp__community__c2gcp__privilege=PrivilegeCodes.CHANGE)))\
             .distinct()
 
     def get_resources_with_explicit_access(self, this_privilege,
@@ -3209,7 +3233,7 @@ class UserAccess(models.Model):
                     .filter(r2urp__privilege=this_privilege,
                             r2urp__user=self.user)
             else:
-                # groups can't own resources
+                # groups and communities can't own resources
                 return BaseResource.objects.none()
 
         # CHANGE does not include immutable resources
@@ -3239,6 +3263,7 @@ class UserAccess(models.Model):
                     finquery = gquery
 
             # community permission is CHANGE only if both permissions are CHANGE
+            # allow_view does not apply to CHANGE access.
             if via_community:
                 squery = Q(raccess__immutable=False,
                            r2grp__privilege=PrivilegeCodes.CHANGE,
@@ -3295,14 +3320,16 @@ class UserAccess(models.Model):
             if via_community:
                 squery = \
                     Q(r2grp__group__gaccess__active=True,
-                      r2grp__privilege=PrivilegeCodes.VIEW,
-                      r2grp__group__g2gcp__community__gaccess__active=True,
-                      r2grp__group__g2gcp__community__g2ugp__user=self.user) | \
+                      r2grp__privilege=PrivilegeCodes.VIEW,  # overrides CHANGE in all cases
+                      r2grp__group__g2gcp__community__c2gcp__allow_view=True,
+                      r2grp__group__g2gcp__community__c2gcp__group__gaccess__active=True,
+                      r2grp__group__g2gcp__community__c2gcp__group__g2ugp__user=self.user) | \
                     Q(r2grp__group__gaccess__active=True,
-                      r2grp__group__g2gcp__privilege=PrivilegeCodes.VIEW,
-                      r2grp__group__g2gcp__community__gaccess__active=True,
-                      r2grp__group__g2gcp__community__g2ugp__user=self.user) | \
-                    Q(raccess__immutable=True,
+                      r2grp__group__g2gcp__privilege=PrivilegeCodes.VIEW,  # not CHANGE
+                      r2grp__group__g2gcp__community__c2gcp__allow_view=True,
+                      r2grp__group__g2gcp__community__c2gcp__group__gaccess__active=True,
+                      r2grp__group__g2gcp__community__c2gcp__group__g2ugp__user=self.user) | \
+                    Q(raccess__immutable=True,  # overrides even supervisor CHANGE
                       r2grp__group__gaccess__active=True,
                       r2grp__group__g2gcp__community__gaccess__active=True,
                       r2grp__group__g2gcp__community__g2ugp__user=self.user)
@@ -5446,15 +5473,16 @@ def access_provenance(u, r):
 #       (group=group) GroupResourcePrivilege
 #       Resource
 
-# direct user-community privilege
-# User UserCommunityPrivilege
-#       (community=community) GroupCommunityPrivilege # privilege operative
-#       (group=group) GroupResourcePrivilege # privilege operative
-#       Resource
+# ### FUTURE ### direct user-community privilege
+# ### FUTURE ### User UserCommunityPrivilege
+# ### FUTURE ###       (community=community) GroupCommunityPrivilege # privilege operative
+# ### FUTURE ###       (group=group) GroupResourcePrivilege # privilege operative
+# ### FUTURE ###       Resource
 
 # community privilege via a group
 # User UserGroupPrivilege
 #       (group=group) GroupCommunityPrivilege  # privilege operative
-#       (community=community) GroupCommunityPrivilege # privilege NOT operative
+#       (community=community) GroupCommunityPrivilege  # privilege NOT operative,
+#                                                      # allow_view operative
 #       (group=group) GroupResourcePrivilege  # privilege operative
 #       Resource
