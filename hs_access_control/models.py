@@ -1592,7 +1592,7 @@ class GroupCommunityProvenance(ProvenanceBase):
     group = models.ForeignKey(Group,
                               null=False,
                               editable=False,
-                              related_name='g2cgq',
+                              related_name='g2gcq',
                               help_text='group to which privilege applies')
 
     grantor = models.ForeignKey(User,
@@ -2952,8 +2952,8 @@ class UserAccess(models.Model):
     def __check_unshare_group_with_community(self, this_group, this_community):
         """ Check whether an unshare of a group with a community is permitted. """
 
-        if this_community not in this_group.gaccess.member_groups:
-            raise PermissionDenied("Group is not a member of the target group")
+        if not self.user.uaccess.owns_community(this_community):
+            raise PermissionDenied("User is not an owner of the target group")
 
         # Check for sufficient privilege
         if not self.user.is_superuser \
@@ -4449,7 +4449,7 @@ class UserAccess(models.Model):
         if not this_group.gaccess.active:
             raise PermissionDenied("Group is not active")
 
-        return this_community in self.__get_community_undo_groups(this_group)
+        return this_group in self.__get_community_undo_groups(this_community)
 
     def undo_share_group_with_community(self, this_group, this_community):
         """
