@@ -511,110 +511,120 @@ class TestCommunities(MockIRODSTestCaseMixin, TestCase):
 ###         self.pets = self.dog.uaccess.create_community(title='all kinds of pets')
 ###         self.pests = self.bat.uaccess.create_community(title='all kinds of pests')
 ###
-###     def test_explanations(self):
-###         " explanations indicate why privileges are granted "
-###
-###         self.dog.uaccess.share_group_with_community(self.dogs, self.pets, PrivilegeCodes.VIEW)
-###         self.dog.uaccess.share_group_with_community(self.bats, self.pets, PrivilegeCodes.VIEW)
-###
-###         pprint(coarse_permissions(self.dog2, self.holes))
-###         pprint(coarse_permissions(self.dog2, self.posts))
-###         pprint(coarse_permissions(self.dog2, self.perches))
-###         pprint(coarse_permissions(self.cat2, self.holes))
-###         pprint(coarse_permissions(self.cat2, self.posts))
-###         pprint(coarse_permissions(self.cat2, self.perches))
-###         pprint(coarse_permissions(self.bat2, self.holes))
-###         pprint(coarse_permissions(self.bat2, self.posts))
-###         pprint(coarse_permissions(self.bat2, self.perches))
-###
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.holes))
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.squirrels))
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.posts))
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.claus))
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.wings))
-###         self.assertTrue(self.dog2.uaccess.can_view_resource(self.perches))
-###
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.holes))
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.squirrels))
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.posts))
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.claus))
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.wings))
-###         self.assertTrue(self.cat2.uaccess.can_view_resource(self.perches))
-###
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.holes))
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.squirrels))
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.posts))
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.claus))
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.wings))
-###         self.assertTrue(self.bat2.uaccess.can_view_resource(self.perches))
-###
-###         self.assertFalse(self.dog2.uaccess.can_change_resource(self.holes))
-###         self.assertTrue(self.dog2.uaccess.can_change_resource(self.squirrels))
-###         self.assertFalse(self.dog2.uaccess.can_change_resource(self.posts))
-###         self.assertFalse(self.dog2.uaccess.can_change_resource(self.claus))
-###         self.assertFalse(self.dog2.uaccess.can_change_resource(self.wings))
-###         self.assertFalse(self.dog2.uaccess.can_change_resource(self.perches))
-###
-###         self.assertFalse(self.cat2.uaccess.can_change_resource(self.holes))
-###         self.assertFalse(self.cat2.uaccess.can_change_resource(self.squirrels))
-###         self.assertFalse(self.cat2.uaccess.can_change_resource(self.posts))
-###         self.assertTrue(self.cat2.uaccess.can_change_resource(self.claus))
-###         self.assertFalse(self.cat2.uaccess.can_change_resource(self.wings))
-###         self.assertFalse(self.cat2.uaccess.can_change_resource(self.perches))
-###
-###         self.assertFalse(self.bat2.uaccess.can_change_resource(self.holes))
-###         self.assertFalse(self.bat2.uaccess.can_change_resource(self.squirrels))
-###         self.assertFalse(self.bat2.uaccess.can_change_resource(self.posts))
-###         self.assertFalse(self.bat2.uaccess.can_change_resource(self.claus))
-###         self.assertFalse(self.bat2.uaccess.can_change_resource(self.wings))
-###         self.assertTrue(self.bat2.uaccess.can_change_resource(self.perches))
-###
-###         self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.view_groups,
-###                                            [self.dogs, self.cats, self.bats]))
-###         self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.view_groups,
-###                                            [self.dogs, self.cats, self.bats]))
-###         self.assertTrue(is_equal_to_as_set(self.bat2.uaccess.view_groups,
-###                                            [self.dogs, self.cats, self.bats]))
-###         self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.edit_groups, []))
-###         self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.edit_groups, []))
-###         self.assertTrue(is_equal_to_as_set(self.bat2.uaccess.edit_groups, []))
-###
-###         self.assertTrue(self.dog2.uaccess.can_view_group(self.dogs))
-###         self.assertTrue(self.dog2.uaccess.can_view_group(self.cats))
-###         self.assertTrue(self.dog2.uaccess.can_view_group(self.bats))
-###
-###         self.assertTrue(self.cat2.uaccess.can_view_group(self.dogs))
-###         self.assertTrue(self.cat2.uaccess.can_view_group(self.cats))
-###         self.assertTrue(self.bat2.uaccess.can_view_group(self.bats))
-###
-###         self.assertTrue(self.bat2.uaccess.can_view_group(self.dogs))
-###         self.assertTrue(self.bat2.uaccess.can_view_group(self.cats))
-###         self.assertTrue(self.bat2.uaccess.can_view_group(self.bats))
-###
-###         self.assertFalse(self.dog2.uaccess.can_change_group(self.dogs))
-###         self.assertFalse(self.dog2.uaccess.can_change_group(self.cats))
-###         self.assertFalse(self.dog2.uaccess.can_change_group(self.bats))
-###
-###         self.assertFalse(self.cat2.uaccess.can_change_group(self.dogs))
-###         self.assertFalse(self.cat2.uaccess.can_change_group(self.cats))
-###         self.assertFalse(self.bat2.uaccess.can_change_group(self.bats))
-###
-###         self.assertFalse(self.bat2.uaccess.can_change_group(self.dogs))
-###         self.assertFalse(self.bat2.uaccess.can_change_group(self.cats))
-###         self.assertFalse(self.bat2.uaccess.can_change_group(self.bats))
-###         pprint(self.dogs.gaccess.viewers)
-###         self.assertTrue(self.dogs.gaccess.viewers, [self.cat, self.cat2, self.dog,
-###                                                     self.dog2, self.bat, self.bat2])
-###         self.assertTrue(self.cats.gaccess.viewers, [self.cat, self.cat2, self.dog,
-###                                                     self.dog2, self.bat, self.bat2])
-###         self.assertTrue(self.bats.gaccess.viewers, [self.cat, self.cat2, self.dog,
-###                                                     self.dog2, self.bat, self.bat2])
-###         self.assertTrue(self.cat2.uaccess.view_resources,
-###                         [self.posts, self.holes, self.wings,
-###                          self.perches, self.claus, self.squirrels])
-###         self.assertTrue(self.dog2.uaccess.view_resources,
-###                         [self.posts, self.holes, self.wings,
-###                          self.perches, self.claus, self.squirrels])
-###         self.assertTrue(self.bat2.uaccess.view_resources,
-###                         [self.posts, self.holes, self.wings,
-###                          self.perches, self.claus, self.squirrels])
+    def test_explanations(self):
+        " explanations indicate why privileges are granted "
+        self.dog.uaccess.share_group_with_community(self.dogs, self.pets, PrivilegeCodes.VIEW)
+        self.dog.uaccess.share_group_with_community(self.bats, self.pets, PrivilegeCodes.VIEW)
+        self.dog.uaccess.share_group_with_community(self.cats, self.pets, PrivilegeCodes.VIEW)
+        #### pprint(coarse_permissions(self.dog2, self.holes))
+        #### pprint(coarse_permissions(self.dog2, self.posts))
+        #### pprint(coarse_permissions(self.dog2, self.perches))
+        #### pprint(coarse_permissions(self.cat2, self.holes))
+        #### pprint(coarse_permissions(self.cat2, self.posts))
+        #### pprint(coarse_permissions(self.cat2, self.perches))
+        #### pprint(coarse_permissions(self.bat2, self.holes))
+        #### pprint(coarse_permissions(self.bat2, self.posts))
+        #### pprint(coarse_permissions(self.bat2, self.perches))
+        #### print(access_provenance(self.dog2, self.holes))
+        #### print(access_provenance(self.dog2, self.posts))
+        #### print(access_provenance(self.dog2, self.perches))
+        #### print(access_provenance(self.cat2, self.holes))
+        #### print(access_provenance(self.cat2, self.posts))
+        #### print(access_provenance(self.cat2, self.perches))
+        #### print(access_provenance(self.bat2, self.holes))
+        #### print(access_provenance(self.bat2, self.posts))
+        #### print(access_provenance(self.bat2, self.perches))
+
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.holes))
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.squirrels))
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.posts))
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.claus))
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.wings))
+        self.assertTrue(self.dog2.uaccess.can_view_resource(self.perches))
+
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.holes))
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.squirrels))
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.posts))
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.claus))
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.wings))
+        self.assertTrue(self.cat2.uaccess.can_view_resource(self.perches))
+
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.holes))
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.squirrels))
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.posts))
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.claus))
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.wings))
+        self.assertTrue(self.bat2.uaccess.can_view_resource(self.perches))
+
+        self.assertFalse(self.dog2.uaccess.can_change_resource(self.holes))
+        self.assertTrue(self.dog2.uaccess.can_change_resource(self.squirrels))
+        self.assertFalse(self.dog2.uaccess.can_change_resource(self.posts))
+        self.assertFalse(self.dog2.uaccess.can_change_resource(self.claus))
+        self.assertFalse(self.dog2.uaccess.can_change_resource(self.wings))
+        self.assertFalse(self.dog2.uaccess.can_change_resource(self.perches))
+
+        self.assertFalse(self.cat2.uaccess.can_change_resource(self.holes))
+        self.assertFalse(self.cat2.uaccess.can_change_resource(self.squirrels))
+        self.assertFalse(self.cat2.uaccess.can_change_resource(self.posts))
+        self.assertTrue(self.cat2.uaccess.can_change_resource(self.claus))
+        self.assertFalse(self.cat2.uaccess.can_change_resource(self.wings))
+        self.assertFalse(self.cat2.uaccess.can_change_resource(self.perches))
+
+        self.assertFalse(self.bat2.uaccess.can_change_resource(self.holes))
+        self.assertFalse(self.bat2.uaccess.can_change_resource(self.squirrels))
+        self.assertFalse(self.bat2.uaccess.can_change_resource(self.posts))
+        self.assertFalse(self.bat2.uaccess.can_change_resource(self.claus))
+        self.assertFalse(self.bat2.uaccess.can_change_resource(self.wings))
+        self.assertTrue(self.bat2.uaccess.can_change_resource(self.perches))
+
+        self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.view_groups,
+                                           [self.dogs, self.cats, self.bats]))
+        self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.view_groups,
+                                           [self.dogs, self.cats, self.bats]))
+        self.assertTrue(is_equal_to_as_set(self.bat2.uaccess.view_groups,
+                                           [self.dogs, self.cats, self.bats]))
+
+        self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.edit_groups, []))
+        self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.edit_groups, []))
+        self.assertTrue(is_equal_to_as_set(self.bat2.uaccess.edit_groups, []))
+
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.dogs))
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.cats))
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.bats))
+
+        self.assertTrue(self.cat2.uaccess.can_view_group(self.dogs))
+        self.assertTrue(self.cat2.uaccess.can_view_group(self.cats))
+        self.assertTrue(self.bat2.uaccess.can_view_group(self.bats))
+
+        self.assertTrue(self.bat2.uaccess.can_view_group(self.dogs))
+        self.assertTrue(self.bat2.uaccess.can_view_group(self.cats))
+        self.assertTrue(self.bat2.uaccess.can_view_group(self.bats))
+
+        self.assertFalse(self.dog2.uaccess.can_change_group(self.dogs))
+        self.assertFalse(self.dog2.uaccess.can_change_group(self.cats))
+        self.assertFalse(self.dog2.uaccess.can_change_group(self.bats))
+
+        self.assertFalse(self.cat2.uaccess.can_change_group(self.dogs))
+        self.assertFalse(self.cat2.uaccess.can_change_group(self.cats))
+        self.assertFalse(self.bat2.uaccess.can_change_group(self.bats))
+
+        self.assertFalse(self.bat2.uaccess.can_change_group(self.dogs))
+        self.assertFalse(self.bat2.uaccess.can_change_group(self.cats))
+        self.assertFalse(self.bat2.uaccess.can_change_group(self.bats))
+
+        self.assertTrue(self.dogs.gaccess.viewers, [self.cat, self.cat2, self.dog,
+                                                    self.dog2, self.bat, self.bat2])
+        self.assertTrue(self.cats.gaccess.viewers, [self.cat, self.cat2, self.dog,
+                                                    self.dog2, self.bat, self.bat2])
+        self.assertTrue(self.bats.gaccess.viewers, [self.cat, self.cat2, self.dog,
+                                                    self.dog2, self.bat, self.bat2])
+
+        self.assertTrue(self.cat2.uaccess.view_resources,
+                        [self.posts, self.holes, self.wings,
+                         self.perches, self.claus, self.squirrels])
+        self.assertTrue(self.dog2.uaccess.view_resources,
+                        [self.posts, self.holes, self.wings,
+                         self.perches, self.claus, self.squirrels])
+        self.assertTrue(self.bat2.uaccess.view_resources,
+                        [self.posts, self.holes, self.wings,
+                         self.perches, self.claus, self.squirrels])

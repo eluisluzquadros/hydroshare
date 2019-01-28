@@ -5457,23 +5457,7 @@ def coarse_permissions(u, r):
     if UserGroupPrivilege.objects\
             .filter(user=u, group__g2gcp__community__c2gcp__group__g2grp__resource=r)\
             .exists():
-        results.append("{} has user-group-community-resource privilege over '{}'"
-                       .format(u.username, r.title))
-
-    # peer communities are given view privilege
-    # This logic is complex. We want to prevent returns to the community from which we originated.
-    # this will only happen if we start at a community with permission. So we prohibit that subcase
-
-    # Check whether peers grant privilege by being in the same communities
-    if UserGroupPrivilege.objects\
-            .filter(user=u,
-                    group__gaccess__active=True,
-                    group__g2gcp__community__c2gcp__group__gaccess__active=True,
-                    group__g2gcp__community__c2gcp__group__g2grp__resource=r)\
-            .exclude(pk__in=UserGroupPrivilege.objects.filter(user=u,
-                                                              group__g2grp__resource=r))\
-            .exists():
-        results.append("{} has user-community-group-community-resource privilege over '{}'"
+        results.append("{} has user-group-community-group-resource privilege over '{}'"
                        .format(u.username, r.title))
     return results
 
@@ -5493,47 +5477,28 @@ def access_permissions(u, r):
         for q2 in GroupResourcePrivilege.objects.filter(group=q.group, resource=r):
             results.append((q, q2,))
 
-    # check whether members of peer group can view community
-    for q in UserGroupPrivilege.objects.filter(
-            user=u, group__g2gcp__community__c2gcp__group__g2grp__resource=r):
-        for q2 in GroupCommunityPrivilege.objects.filter(
-                group=q.group,
-                community__c2gcp__group__g2grp__resource=r):
-            for q3 in GroupResourcePrivilege.objects.filter(group=q2.community, resource=r):
-                results.append((q, q2, q3,))
-
-    # check whether members of community can view peer groups
-    for q in UserGroupPrivilege.objects.filter(
-            user=u,
-            group__gaccess__active=True,
-            group__g2gcp__community__c2grp__allow_view=True,
-            group__g2gcp__community__c2grp__group__gaccess__active=True,
-            group__g2gcp__community__c2grp__group__g2grp__resource=r):
-        # print("    community is {}".format(q.group))
-        for q2 in GroupCommunityPrivilege.objects.filter(community=q.group,
-                                                         group__g2grp__resource=r):
-            for q3 in GroupResourcePrivilege.objects.filter(group=q2.group, resource=r):
-                results.append((q, q2, q3,))
-
     # peer communities are given view privilege
     # This logic is complex. We want to prevent returns to the group from which we originated.
     # this will only happen if we start at a group with permission. So we prohibit that subcase
     # Check whether peers grant privilege by being in the same community
     for q in UserGroupPrivilege.objects\
             .filter(user=u,
+                    group__gaccess__active=True,
                     group__g2gcp__community__c2gcp__allow_view=True,
                     group__g2gcp__community__c2gcp__group__gaccess__active=True,
                     group__g2gcp__community__c2gcp__group__g2grp__resource=r)\
             .exclude(pk__in=UserGroupPrivilege.objects.filter(user=u,
                                                               group__g2grp__resource=r)):
         for q2 in GroupCommunityPrivilege.objects.filter(
-                community=q.group,
-                group__g2gcp__community__c2gcp__group__g2grp__resource=r):
+                group__gaccess__active=True, 
+                group=q.group,
+                community__c2gcp__group__gaccess__active=True, 
+                community__c2gcp__group__g2grp__resource=r):
             for q3 in GroupCommunityPrivilege.objects.filter(
-                    group=q2.group,
+                    community=q2.community,
                     community__c2gcp__group__g2grp__resource=r):
                 for q4 in GroupResourcePrivilege.objects\
-                          .filter(group=q3.community, resource=r):
+                          .filter(group=q3.group, resource=r):
                     results.append((q, q2, q3, q4,))
     return results
 
@@ -5548,22 +5513,24 @@ def access_provenance(u, r):
         output += "    '{}' is immutable: edit is replaced with view\n".format(r.title)
     for tuple in e:
         elements = list(tuple)
-        preve = None
+        found = False
         for e in elements:
             if isinstance(e, UserResourcePrivilege):
                 output += "  * user {} {} resource.\n".format(e.user.username, verbs[e.privilege])
             elif isinstance(e, UserGroupPrivilege):
-                output += "  * user {} is in group {},\n".format(e.user.username, e.group.name)
+                output += "  * user {} {} group {},\n".format(e.user.username, 
+                                                              verbs[e.privilege], 
+                                                              e.group.name)
             elif isinstance(e, GroupResourcePrivilege):
                 output += "    which {} resource.\n".format(verbs[e.privilege])
             elif isinstance(e, GroupCommunityPrivilege):
-                if preve.group == e.community:
-                    output += "    which {} resources of peer group {},\n"\
+                if not found: 
+                    output += "    which {} community {},\n"\
+                              .format(verbs[e.privilege], e.community.name)
+                    found = True
+                else:
+                    output += "    which {} resources of group {},\n"\
                               .format(verbs[e.privilege], e.group.name)
-                else:  # preve.group=e.group:
-                    output += "    which {} resources of community {},\n"\
-                              .format(verbs[e.privilege], e.group.name)
-            preve = e
 
     return output
 
