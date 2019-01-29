@@ -2166,10 +2166,96 @@ class UserAccess(models.Model):
     # access checks for groups
     #################################
 
-    # There is a duality between 
+    # There is a duality between listing and access for groups.
     # The group interface requires owns_group, views_group, etc to concern
-    # direct privilege. By contrast, the control functions can_*_group_* 
-    # must include indirect privilege. 
+    # direct privilege. By contrast, the control functions can_*_group_*
+    # must include indirect privilege. Thus the listing functions __all_*_groups
+    # include indirect privilege
+
+    @property
+    def __all_view_groups(self):
+        """
+        Get a list of active groups accessible to self for view.
+
+        Inactive groups will be included only if self owns those groups.
+
+        :return: QuerySet evaluating to held groups.
+
+        This returns all groups that are viewable, including owned groups and groups
+        in communities to which the user has view access.
+        """
+        if not self.user.is_active:
+            raise PermissionDenied("Requesting user is not active")
+
+        return Group.objects.filter(
+                # owners can see inactive groups they own
+                Q(g2ugp__user=self.user,
+                  g2ugp__privilege=PrivilegeCodes.OWNER) |
+                # everyone else can see only active groups they are in
+                Q(gaccess__active=True,
+                  g2ugp__user=self.user) |
+                # if user has access to a group in a community, grant access to whole community
+                Q(gaccess__active=True,
+                  g2gcp__community__c2gcp__allow_view=True,
+                  g2gcp__community__c2gcp__group__gaccess__active=True,
+                  g2gcp__community__c2gcp__group__g2ugp__user=self.user)).distinct()
+
+    @property
+    def __all_edit_groups(self):
+        """
+        Return a list of active groups editable by self. This includes groups in the community.
+
+        Inactive groups will be included only if self owns those groups.
+
+        :return: QuerySet of groups editable by self.
+
+        Usage:
+        ------
+
+        Because this returns a QuerySet, and not a set of objects, one can append
+        extra QuerySet attributes to it, e.g. ordering, selection, projection:
+
+            q = user.edit_groups
+            q2 = q.order_by(...)
+            v2 = q2.values('title')
+            # etc
+
+        """
+        if not self.user.is_active:
+            raise PermissionDenied("Requesting user is not active")
+
+        return Group.objects.filter((Q(g2ugp__user=self.user,
+                                       g2ugp__privilege=PrivilegeCodes.CHANGE) &
+                                     (Q(gaccess__active=True) | Q(pk__in=self.owned_groups))) |
+                                    Q(gaccess__active=True,
+                                      g2gcp__community__c2gcp__privilege=PrivilegeCodes.CHANGE,
+                                      g2gcp__community__c2gcp__group__gaccess__active=True,
+                                      g2gcp__community__c2gcp__group__g2ugp__user=self.user))
+
+    @property
+    def __all_owned_groups(self):
+        """
+        Return a QuerySet of groups (including inactive groups) owned by self.
+
+        :return: QuerySet of groups owned by self.
+
+        Usage:
+        ------
+
+        Because this returns a QuerySet, and not a set of objects, one can append
+        extra QuerySet attributes to it, e.g. ordering, selection, projection:
+
+            q = user.owned_groups
+            q2 = q.order_by(...)
+            v2 = q2.values('title')
+            # etc
+
+        """
+        if not self.user.is_active:
+            raise PermissionDenied("Requesting user is not active")
+
+        return Group.objects.filter(g2ugp__user=self.user,
+                                    g2ugp__privilege=PrivilegeCodes.OWNER)
 
     def owns_group(self, this_group):
         """
@@ -2227,7 +2313,7 @@ class UserAccess(models.Model):
         if self.user.is_superuser:
             return True
 
-        return this_group in self.edit_groups
+        return this_group in self.__all_edit_groups
 
     def can_view_group(self, this_group):
         """
@@ -2260,7 +2346,7 @@ class UserAccess(models.Model):
             raise PermissionDenied("Group is not active")
 
         return self.user.is_superuser or this_group.gaccess.public \
-            or this_group in self.view_groups
+            or this_group in self.__all_view_groups
 
     def can_view_group_metadata(self, this_group):
         """
@@ -4181,7 +4267,7 @@ class UserAccess(models.Model):
 
     def __check_unshare_resource_with_group(self, this_resource, this_group):
         """ check that one can unshare a group with a resource, raise PermissionDenied if not """
-        if this_group not in this_resource.raccess.view_groups:
+        if this_group not in this_resource.raccess.__all_view_groups:
             raise PermissionDenied("Group does not have access to resource")
 
         # TODO: also authorize owners of the group and members of peer groups in communities
@@ -5393,7 +5479,8 @@ class ResourceAccess(models.Model):
         This accounts for resource flags by revoking CHANGE on immutable resources.
         """
         # at this point, this conditional does nothing, but there may
-        # be cases in which this permision returns CHANGE in the future
+        # be cases in which this permission returns CHANGE in the future
+        # TODO: include CHANGE chaining here
         group_priv = self.__get_raw_community_privilege(this_user)
         if self.immutable and group_priv == PrivilegeCodes.CHANGE:
             return PrivilegeCodes.VIEW
