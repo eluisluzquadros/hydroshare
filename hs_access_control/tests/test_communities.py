@@ -628,3 +628,28 @@ class TestCommunities(MockIRODSTestCaseMixin, TestCase):
         self.assertTrue(self.bat2.uaccess.view_resources,
                         [self.posts, self.holes, self.wings,
                          self.perches, self.claus, self.squirrels])
+
+    def test_iteration(self):
+        " iterate over resources in a community "
+        self.dog.uaccess.share_group_with_community(self.dogs, self.pets, PrivilegeCodes.VIEW)
+        self.dog.uaccess.share_group_with_community(self.bats, self.pets, PrivilegeCodes.VIEW)
+        self.dog.uaccess.share_group_with_community(self.cats, self.pets, PrivilegeCodes.VIEW)
+        comms = self.dog.uaccess.communities
+        self.assertTrue(is_equal_to_as_set(comms, [self.pets]))
+        comm = comms[0]
+        groupc = comm.get_groups_with_explicit_access(PrivilegeCodes.CHANGE)
+        self.assertTrue(is_equal_to_as_set(groupc, []))
+        groupv = comm.get_groups_with_explicit_access(PrivilegeCodes.VIEW)
+        self.assertTrue(is_equal_to_as_set(groupv, [self.cats, self.bats, self.dogs]))
+
+        for group in groupv: 
+            resources = group.gaccess.get_resources_with_explicit_access(PrivilegeCodes.CHANGE)
+            pprint("CHANGE")
+            pprint(group)
+            pprint(resources)
+            resources = group.gaccess.get_resources_with_explicit_access(PrivilegeCodes.VIEW)
+            pprint("VIEW")
+            pprint(group)
+            pprint(resources)
+
+        self.assertTrue(False)
