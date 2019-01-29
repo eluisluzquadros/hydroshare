@@ -578,11 +578,14 @@ class TestCommunities(MockIRODSTestCaseMixin, TestCase):
         self.assertTrue(self.bat2.uaccess.can_change_resource(self.perches))
 
         self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.view_groups,
-                                           [self.dogs, self.cats, self.bats]))
+                                           [self.dogs]))
         self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.view_groups,
-                                           [self.dogs, self.cats, self.bats]))
+                                           [self.cats]))
         self.assertTrue(is_equal_to_as_set(self.bat2.uaccess.view_groups,
-                                           [self.dogs, self.cats, self.bats]))
+                                           [self.bats]))
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.dogs))
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.cats))
+        self.assertTrue(self.dog2.uaccess.can_view_group(self.bats))
 
         self.assertTrue(is_equal_to_as_set(self.dog2.uaccess.edit_groups, []))
         self.assertTrue(is_equal_to_as_set(self.cat2.uaccess.edit_groups, []))

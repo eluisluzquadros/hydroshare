@@ -96,27 +96,6 @@ class PrivilegeCodes(object):
     NAMES = ('Unspecified', 'Owner', 'Change', 'View', 'None')
 
 
-class Community(models.Model):
-    """ a placeholder class for a community of groups """
-    name = models.TextField(null=False, blank=False)
-    description = models.TextField(null=False, blank=False)
-    purpose = models.TextField(null=True, blank=True)
-    auto_approve = models.BooleanField(null=False, default=False, blank=False, editable=False)
-    date_created = models.DateTimeField(editable=False, auto_now_add=True)
-    picture = models.ImageField(upload_to='community', null=True, blank=True)
-
-    @property
-    def member_groups(self):
-        return Group.objects.filter(gaccess__active=True, g2gcp__community=self)
-
-    @property
-    def member_users(self):
-        return User.objects.filter(is_active=True, u2ucp__community=self)
-
-    def get_groups_with_explicit_access(self, privilege):
-        return Group.objects.filter(g2gcp__community=self, g2gcp__privilege=privilege)
-
-
 class PrivilegeBase(models.Model):
     """
     Shared methods for Privilege handling
@@ -710,368 +689,6 @@ class GroupResourcePrivilege(PrivilegeBase):
         return GroupResourceProvenance.get_undo_groups(**kwargs)
 
 
-class UserCommunityPrivilege(PrivilegeBase):
-    """ Privileges of a user over a community
-
-    Having any privilege over a community is synonymous with membership.
-
-    There is a reasonable meaning to PrivilegeCodes.NONE, which is to be
-    a community member without the ability to discover the identities of other
-    group members.  However, this is currently disallowed. It is used in the
-    provenance models to record removing a privilege.
-    """
-
-    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
-                                    editable=False,
-                                    default=PrivilegeCodes.VIEW)
-    start = models.DateTimeField(editable=False, auto_now=True)
-
-    community = models.ForeignKey(Community,
-                                  null=False,
-                                  editable=False,
-                                  related_name='c2ucp',
-                                  help_text='community to be granted privilege')
-
-    user = models.ForeignKey(User,
-                             null=False,
-                             editable=False,
-                             related_name='u2ucp',
-                             help_text='group providing privilege')
-
-    grantor = models.ForeignKey(User,
-                                null=False,
-                                editable=False,
-                                related_name='x2ucp',
-                                help_text='grantor of privilege')
-
-    class Meta:
-        unique_together = ('community', 'user')
-
-    def __str__(self):
-        """ Return printed depiction for debugging """
-        return str.format("<community '{}' (id={}) holds {} ({})" +
-                          " over user '{}' (id={})" +
-                          " via grantor '{}' (id={})>",
-                          str(self.community.name), str(self.community.id),
-                          PrivilegeCodes.NAMES[self.privilege],
-                          str(self.privilege),
-                          str(self.user.username), str(self.user.id),
-                          str(self.grantor.username), str(self.grantor.id))
-
-    @classmethod
-    def share(cls, **kwargs):
-        """
-        Share a community with a user and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param user: user to be granted access.
-        :param community: target community with which to share
-        :param privilege: privilege 1-4.
-        :param grantor: user who requested privilege.
-
-        Usage:
-            UserCommunityPrivilege.share(user={X}, community={Y}, privilege={Z}, grantor={W}
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'user' in kwargs
-            assert isinstance(kwargs['user'], User)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert 'privilege' in kwargs
-            assert \
-                kwargs['privilege'] >= PrivilegeCodes.OWNER and \
-                kwargs['privilege'] <= PrivilegeCodes.NONE
-            assert len(kwargs) == 4
-        cls.update(**kwargs)
-        UserCommunityProvenance.update(**kwargs)
-
-    @classmethod
-    def unshare(cls, **kwargs):
-        """
-        Unshare a user with a community and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param user: user to unshare
-        :param community: target community with which to unshare
-        :param grantor: user who requested privilege.
-
-        Usage:
-            UserCommunityPrivilege.unshare(user={X}, user={Y}, grantor={W})
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        Use UserAccess.unshare_user_with_community instead. This prevents unsharing with single
-        owners.
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'user' in kwargs
-            assert isinstance(kwargs['user'], User)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 3
-        cls.update(privilege=PrivilegeCodes.NONE, **kwargs)
-        UserCommunityProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
-
-    @classmethod
-    def undo_share(cls, **kwargs):
-        """
-        Undo a share a user with a community and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param user: user for which to undo
-        :param community: target community with which to undo share
-        :param grantor: user who requested privilege.
-
-        Usage:
-            UserCommunityPrivilege.undo_share(community={X}, user={Y}, grantor={W})
-
-        In practice:
-
-        The "undo" operation is independent of the privileges a user currently holds.
-        Suppose -- for example -- that a user holds CHANGE, grants that to another user,
-        and then loses CHANGE. The undo of the other user is still possible, even though the
-        original user no longer has the privilege.
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'user' in kwargs
-            assert isinstance(kwargs['user'], User)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 3
-        grantor = kwargs['grantor']
-        del kwargs['grantor']
-        # undo in provenance model; add a record that reinstates previous privilege.
-        UserCommunityProvenance.undo_share(grantor=grantor, **kwargs)
-        # read that record and post to privilege table.
-        r = UserCommunityProvenance.get_current_record(**kwargs)
-        cls.update(community=r.community, user=r.user, privilege=r.privilege, grantor=r.grantor)
-
-    @classmethod
-    def get_undo_users(cls, **kwargs):
-        """ Get a set of users for which a grantor can undo privilege
-
-        :param community: community to check
-        :param grantor: user that will undo privilege
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 2
-        return UserCommunityProvenance.get_undo_users(**kwargs)
-
-
-class GroupCommunityPrivilege(PrivilegeBase):
-    """ Privileges of a group over a community
-
-    This encodes the privileges of a specific group over a community.
-
-    * VIEW privilege means the group can view resources of the community.
-    * CHANGE privilege means the group can edit resources that are editable to any group
-      in the community.
-
-    These are outgoing privileges (Group to Community).
-
-    Incoming privileges (Community to group) are handled separately via the
-    "allow_view" boolean flag.
-
-    * If allow_view is True, the resources accessible to the group
-      are accessible to the groups in the community that have VIEW privilege.
-    * If allow_view is False, resources accessible to the group
-      are hidden from the groups of the community with view privilege.
-    * This does not affect groups of the community with CHANGE privilege, which have
-      in essence superuser access to the resources of the community member groups.
-
-    There is a reasonable meaning to PrivilegeCodes.NONE, which is to be
-    a community member without the ability to view anything in the community.
-    However, this is currently disallowed. It is used in the provenance models
-    to record removing a privilege.
-    """
-
-    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
-                                    editable=False,
-                                    default=PrivilegeCodes.VIEW)
-
-    start = models.DateTimeField(editable=False, auto_now=True)
-
-    community = models.ForeignKey(Community,
-                                  null=False,
-                                  editable=False,
-                                  related_name='c2gcp',
-                                  help_text='community to be granted privilege')
-
-    group = models.ForeignKey(Group,
-                              null=False,
-                              editable=False,
-                              related_name='g2gcp',
-                              help_text='group providing privilege')
-
-    grantor = models.ForeignKey(User,
-                                null=False,
-                                editable=False,
-                                related_name='x2swp',
-                                help_text='grantor of privilege')
-
-    # This field is not stored in provenance, nor restored upon undo.
-    allow_view = models.BooleanField(null=False,
-                                     editable=False,
-                                     default=True,
-                                     help_text="whether to allow view for group's resources")
-
-    class Meta:
-        unique_together = ('community', 'group')
-
-    def __str__(self):
-        """ Return printed depiction for debugging """
-        return str.format("<community '{}' (id={}) holds {} ({})" +
-                          " over group '{}' (id={})" +
-                          " via grantor '{}' (id={})>",
-                          str(self.community.name), str(self.community.id),
-                          PrivilegeCodes.NAMES[self.privilege],
-                          str(self.privilege),
-                          str(self.group.name), str(self.group.id),
-                          str(self.grantor.username), str(self.grantor.id))
-
-    @classmethod
-    def share(cls, **kwargs):
-        """
-        Share a community with a group and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param group: source group to share
-        :param community: target community with which to share
-        :param privilege: privilege 1-4.
-        :param grantor: user who requested privilege.
-
-        Usage:
-            GroupCommunityPrivilege.share(group={X}, community={Y}, privilege={Z}, grantor={W}
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'group' in kwargs
-            assert isinstance(kwargs['group'], Group)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert 'privilege' in kwargs
-            assert \
-                kwargs['privilege'] >= PrivilegeCodes.OWNER and \
-                kwargs['privilege'] <= PrivilegeCodes.NONE
-            assert len(kwargs) == 4
-        cls.update(**kwargs)
-        GroupCommunityProvenance.update(**kwargs)
-
-    @classmethod
-    def unshare(cls, **kwargs):
-        """
-        Unshare a group with a community and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param group: source group to share
-        :param community: target community with which to unshare
-        :param grantor: user who requested privilege.
-
-        Usage:
-            GroupCommunityPrivilege.unshare(group={X}, user={Y}, grantor={W})
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        Use UserAccess.unshare_group_with_community instead.
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'group' in kwargs
-            assert isinstance(kwargs['group'], Group)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 3
-        cls.update(privilege=PrivilegeCodes.NONE, **kwargs)
-        GroupCommunityProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
-
-    @classmethod
-    def undo_share(cls, **kwargs):
-        """
-        Undo a share a group with a community and update provenance
-
-        ***This completely bypasses access control*** but keeps provenance in sync.
-
-        :param group: source group to undo
-        :param community: target community with which to undo share
-        :param grantor: user who requested privilege.
-
-        Usage:
-            GroupCommunityPrivilege.undo_share(community={X}, group={Y}, grantor={W})
-
-        In practice:
-
-        The "undo" operation is independent of the privileges a user currently holds.
-        Suppose -- for example -- that a user holds CHANGE, grants that to another user,
-        and then loses CHANGE. The undo of the other user is still possible, even though the
-        original user no longer has the privilege.
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'group' in kwargs
-            assert isinstance(kwargs['group'], Group)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 3
-        grantor = kwargs['grantor']
-        del kwargs['grantor']
-        # undo in provenance model; add a record that reinstates previous privilege.
-        GroupCommunityProvenance.undo_share(grantor=grantor, **kwargs)
-        # read that record and post to privilege table.
-        r = GroupCommunityProvenance.get_current_record(**kwargs)
-        cls.update(community=r.community, group=r.group, privilege=r.privilege, grantor=r.grantor)
-
-    @classmethod
-    def get_undo_groups(cls, **kwargs):
-        """ Get a set of groups for which a grantor can undo privilege
-
-        :param community: community to check
-        :param grantor: user that will undo privilege
-
-        Important: this does not guard against removing a single owner.
-
-        **This is a system routine** that should not be called directly by developers!
-        """
-        if __debug__:
-            assert 'community' in kwargs
-            assert isinstance(kwargs['community'], Community)
-            assert 'grantor' in kwargs
-            assert isinstance(kwargs['grantor'], User)
-            assert len(kwargs) == 2
-        return GroupCommunityProvenance.get_undo_groups(**kwargs)
-
-
 class ProvenanceBase(models.Model):
     """Methods reused by all provenance classes
 
@@ -1646,222 +1263,6 @@ class GroupResourceProvenance(ProvenanceBase):
                                                    privilege=privilege,
                                                    grantor=grantor,
                                                    undone=undone)
-
-
-class UserCommunityProvenance(ProvenanceBase):
-    """
-    Provenance of privileges of a user over a community
-
-    Having any privilege over a community is synonymous with membership.
-
-    This is an append-only ledger of user privilege that serves as complete provenance
-    of access changes.  At any time, one privilege applies to each grantee and group.
-    This is the privilege with the latest start date.  For performance reasons, this
-    information is cached in a separate table UserCommunityPrivilege.
-
-    To undo a privilege, one appends a record to this table with PrivilegeCodes.NONE.
-    This is indistinguishable from having no record at all.  Thus, this provides a
-    complete time-based journal of what privilege was in effect when.
-
-    An "undone" field allows one-step undo but prohibits further undo.
-
-    """
-    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
-                                    editable=False,
-                                    default=PrivilegeCodes.VIEW)
-
-    start = models.DateTimeField(editable=False, auto_now_add=True)
-
-    community = models.ForeignKey(Community,
-                                  null=False,
-                                  editable=False,
-                                  related_name='c2ucq',
-                                  help_text='community to be granted privilege')
-
-    user = models.ForeignKey(User,
-                             null=False,
-                             editable=False,
-                             related_name='u2ucq',
-                             help_text='user to which privilege applies')
-
-    grantor = models.ForeignKey(User,
-                                null=True,
-                                editable=False,
-                                related_name='x2ucq',
-                                help_text='grantor of privilege')
-
-    undone = models.BooleanField(editable=False, default=False)
-
-    class Meta:
-        unique_together = ('community', 'user', 'start')
-
-    @property
-    def grantee(self):
-        """ make printing of privilege records work properly in superclass"""
-        return self.community
-
-    @property
-    def entity(self):
-        """ make printing of privilege records work properly in superclass"""
-        return self.user
-
-    @classmethod
-    def get_undo_users(cls, community, grantor):
-        """
-        get the users for which a specific grantee can undo privilege
-
-        :param community: community to check.
-        :param grantor: user that would initiate the rollback.
-
-        Note: undo is somewhat independent of access control. A user need not hold
-        a privilege to undo a privilege that was previously granted.
-        """
-
-        if __debug__:
-            assert isinstance(grantor, User)
-            assert isinstance(community, Community)
-
-        # users are those last granted a privilege over the entity by the grantor
-        # This syntax is curious due to undesirable semantics of .exclude.
-        # All conditions on the filter must be specified in the same filter statement.
-        selected = User.objects.filter(u2ucq__community=community)\
-                               .annotate(start=Max('c2ucq__start'))\
-                               .filter(u2ucq__start=F('start'),
-                                       u2ucq__grantor=grantor,
-                                       u2ucq__undone=False)
-        return selected
-
-    @classmethod
-    def update(cls, user, community, privilege, grantor, undone=False):
-        """
-        Add a provenance record to the provenance chain.
-
-        :param user: shared user
-        :param community: community with which user is shared.
-        :param grantor: user that would initiate the rollback.
-
-        This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
-        """
-
-        if __debug__:
-            assert isinstance(user, User)
-            assert isinstance(community, Community)
-            assert grantor is None or isinstance(grantor, User)
-            assert privilege >= PrivilegeCodes.OWNER and privilege <= PrivilegeCodes.NONE
-
-        super(UserCommunityProvenance, cls).update(user=user,
-                                                   community=community,
-                                                   privilege=privilege,
-                                                   grantor=grantor,
-                                                   undone=undone)
-
-
-class GroupCommunityProvenance(ProvenanceBase):
-    """
-    Provenance of privileges of a group over a community
-
-    Having any privilege over a community is synonymous with membership.
-
-    This is an append-only ledger of group privilege that serves as complete provenance
-    of access changes.  At any time, one privilege applies to each grantee and group.
-    This is the privilege with the latest start date.  For performance reasons, this
-    information is cached in a separate table GroupCommunityPrivilege.
-
-    To undo a privilege, one appends a record to this table with PrivilegeCodes.NONE.
-    This is indistinguishable from having no record at all.  Thus, this provides a
-    complete time-based journal of what privilege was in effect when.
-
-    An "undone" field allows one-step undo but prohibits further undo.
-
-    """
-    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
-                                    editable=False,
-                                    default=PrivilegeCodes.VIEW)
-
-    start = models.DateTimeField(editable=False, auto_now_add=True)
-
-    community = models.ForeignKey(Community,
-                                  null=False,
-                                  editable=False,
-                                  related_name='c2gcq',
-                                  help_text='group to be granted privilege')
-
-    group = models.ForeignKey(Group,
-                              null=False,
-                              editable=False,
-                              related_name='g2gcq',
-                              help_text='group to which privilege applies')
-
-    grantor = models.ForeignKey(User,
-                                null=True,
-                                editable=False,
-                                related_name='x2gcq',
-                                help_text='grantor of privilege')
-
-    undone = models.BooleanField(editable=False, default=False)
-
-    class Meta:
-        unique_together = ('community', 'group', 'start')
-
-    @property
-    def grantee(self):
-        """ make printing of privilege records work properly in superclass"""
-        return self.community
-
-    @property
-    def entity(self):
-        """ make printing of privilege records work properly in superclass"""
-        return self.group
-
-    @classmethod
-    def get_undo_groups(cls, community, grantor):
-        """
-        get the groups for which a specific grantee can undo privilege
-
-        :param community: community to check.
-        :param grantor: user that would initiate the rollback.
-
-        Note: undo is somewhat independent of access control. A user need not hold
-        a privilege to undo a privilege that was previously granted.
-        """
-
-        if __debug__:
-            assert isinstance(grantor, User)
-            assert isinstance(community, Community)
-
-        # users are those last granted a privilege over the entity by the grantor
-        # This syntax is curious due to undesirable semantics of .exclude.
-        # All conditions on the filter must be specified in the same filter statement.
-        selected = Group.objects.filter(g2gcq__community=community)\
-                               .annotate(start=Max('g2gcq__start'))\
-                               .filter(g2gcq__start=F('start'),
-                                       g2gcq__grantor=grantor,
-                                       g2gcq__undone=False)
-        return selected
-
-    @classmethod
-    def update(cls, group, community, privilege, grantor, undone=False):
-        """
-        Add a provenance record to the provenance chain.
-
-        :param group: shared group
-        :param community: community with which group is shared.
-        :param grantor: user that would initiate the rollback.
-
-        This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
-        """
-
-        if __debug__:
-            assert isinstance(group, Group)
-            assert isinstance(community, Community)
-            assert grantor is None or isinstance(grantor, User)
-            assert privilege >= PrivilegeCodes.OWNER and privilege <= PrivilegeCodes.NONE
-
-        super(GroupCommunityProvenance, cls).update(group=group,
-                                                    community=community,
-                                                    privilege=privilege,
-                                                    grantor=grantor,
-                                                    undone=undone)
 
 
 class UserAccess(models.Model):
@@ -5669,3 +5070,606 @@ def access_provenance(u, r):
 #        for resources in that group the user cannot change:
 #            [group.get_resources_with_explicit_access(privilege=VIEW)]
 #            show resources
+
+###################################
+# Communities of groups
+###################################
+
+
+class Community(models.Model):
+    """ a placeholder class for a community of groups """
+    name = models.TextField(null=False, blank=False)
+    description = models.TextField(null=False, blank=False)
+    purpose = models.TextField(null=True, blank=True)
+    auto_approve = models.BooleanField(null=False, default=False, blank=False, editable=False)
+    date_created = models.DateTimeField(editable=False, auto_now_add=True)
+    picture = models.ImageField(upload_to='community', null=True, blank=True)
+
+    @property
+    def member_groups(self):
+        return Group.objects.filter(gaccess__active=True, g2gcp__community=self)
+
+    @property
+    def member_users(self):
+        return User.objects.filter(is_active=True, u2ucp__community=self)
+
+    def get_groups_with_explicit_access(self, privilege):
+        return Group.objects.filter(g2gcp__community=self, g2gcp__privilege=privilege)
+
+
+class UserCommunityPrivilege(PrivilegeBase):
+    """ Privileges of a user over a community
+
+    Having any privilege over a community is synonymous with membership.
+
+    There is a reasonable meaning to PrivilegeCodes.NONE, which is to be
+    a community member without the ability to discover the identities of other
+    group members.  However, this is currently disallowed. It is used in the
+    provenance models to record removing a privilege.
+    """
+
+    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
+                                    editable=False,
+                                    default=PrivilegeCodes.VIEW)
+    start = models.DateTimeField(editable=False, auto_now=True)
+
+    community = models.ForeignKey(Community,
+                                  null=False,
+                                  editable=False,
+                                  related_name='c2ucp',
+                                  help_text='community to be granted privilege')
+
+    user = models.ForeignKey(User,
+                             null=False,
+                             editable=False,
+                             related_name='u2ucp',
+                             help_text='group providing privilege')
+
+    grantor = models.ForeignKey(User,
+                                null=False,
+                                editable=False,
+                                related_name='x2ucp',
+                                help_text='grantor of privilege')
+
+    class Meta:
+        unique_together = ('community', 'user')
+
+    def __str__(self):
+        """ Return printed depiction for debugging """
+        return str.format("<community '{}' (id={}) holds {} ({})" +
+                          " over user '{}' (id={})" +
+                          " via grantor '{}' (id={})>",
+                          str(self.community.name), str(self.community.id),
+                          PrivilegeCodes.NAMES[self.privilege],
+                          str(self.privilege),
+                          str(self.user.username), str(self.user.id),
+                          str(self.grantor.username), str(self.grantor.id))
+
+    @classmethod
+    def share(cls, **kwargs):
+        """
+        Share a community with a user and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param user: user to be granted access.
+        :param community: target community with which to share
+        :param privilege: privilege 1-4.
+        :param grantor: user who requested privilege.
+
+        Usage:
+            UserCommunityPrivilege.share(user={X}, community={Y}, privilege={Z}, grantor={W}
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'user' in kwargs
+            assert isinstance(kwargs['user'], User)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert 'privilege' in kwargs
+            assert \
+                kwargs['privilege'] >= PrivilegeCodes.OWNER and \
+                kwargs['privilege'] <= PrivilegeCodes.NONE
+            assert len(kwargs) == 4
+        cls.update(**kwargs)
+        UserCommunityProvenance.update(**kwargs)
+
+    @classmethod
+    def unshare(cls, **kwargs):
+        """
+        Unshare a user with a community and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param user: user to unshare
+        :param community: target community with which to unshare
+        :param grantor: user who requested privilege.
+
+        Usage:
+            UserCommunityPrivilege.unshare(user={X}, user={Y}, grantor={W})
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        Use UserAccess.unshare_user_with_community instead. This prevents unsharing with single
+        owners.
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'user' in kwargs
+            assert isinstance(kwargs['user'], User)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 3
+        cls.update(privilege=PrivilegeCodes.NONE, **kwargs)
+        UserCommunityProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
+
+    @classmethod
+    def undo_share(cls, **kwargs):
+        """
+        Undo a share a user with a community and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param user: user for which to undo
+        :param community: target community with which to undo share
+        :param grantor: user who requested privilege.
+
+        Usage:
+            UserCommunityPrivilege.undo_share(community={X}, user={Y}, grantor={W})
+
+        In practice:
+
+        The "undo" operation is independent of the privileges a user currently holds.
+        Suppose -- for example -- that a user holds CHANGE, grants that to another user,
+        and then loses CHANGE. The undo of the other user is still possible, even though the
+        original user no longer has the privilege.
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'user' in kwargs
+            assert isinstance(kwargs['user'], User)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 3
+        grantor = kwargs['grantor']
+        del kwargs['grantor']
+        # undo in provenance model; add a record that reinstates previous privilege.
+        UserCommunityProvenance.undo_share(grantor=grantor, **kwargs)
+        # read that record and post to privilege table.
+        r = UserCommunityProvenance.get_current_record(**kwargs)
+        cls.update(community=r.community, user=r.user, privilege=r.privilege, grantor=r.grantor)
+
+    @classmethod
+    def get_undo_users(cls, **kwargs):
+        """ Get a set of users for which a grantor can undo privilege
+
+        :param community: community to check
+        :param grantor: user that will undo privilege
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 2
+        return UserCommunityProvenance.get_undo_users(**kwargs)
+
+
+class GroupCommunityPrivilege(PrivilegeBase):
+    """ Privileges of a group over a community
+
+    This encodes the privileges of a specific group over a community.
+
+    * VIEW privilege means the group can view resources of the community.
+    * CHANGE privilege means the group can edit resources that are editable to any group
+      in the community.
+
+    These are outgoing privileges (Group to Community).
+
+    Incoming privileges (Community to group) are handled separately via the
+    "allow_view" boolean flag.
+
+    * If allow_view is True, the resources accessible to the group
+      are accessible to the groups in the community that have VIEW privilege.
+    * If allow_view is False, resources accessible to the group
+      are hidden from the groups of the community with view privilege.
+    * This does not affect groups of the community with CHANGE privilege, which have
+      in essence superuser access to the resources of the community member groups.
+
+    There is a reasonable meaning to PrivilegeCodes.NONE, which is to be
+    a community member without the ability to view anything in the community.
+    However, this is currently disallowed. It is used in the provenance models
+    to record removing a privilege.
+    """
+
+    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
+                                    editable=False,
+                                    default=PrivilegeCodes.VIEW)
+
+    start = models.DateTimeField(editable=False, auto_now=True)
+
+    community = models.ForeignKey(Community,
+                                  null=False,
+                                  editable=False,
+                                  related_name='c2gcp',
+                                  help_text='community to be granted privilege')
+
+    group = models.ForeignKey(Group,
+                              null=False,
+                              editable=False,
+                              related_name='g2gcp',
+                              help_text='group providing privilege')
+
+    grantor = models.ForeignKey(User,
+                                null=False,
+                                editable=False,
+                                related_name='x2swp',
+                                help_text='grantor of privilege')
+
+    # This field is not stored in provenance, nor restored upon undo.
+    allow_view = models.BooleanField(null=False,
+                                     editable=False,
+                                     default=True,
+                                     help_text="whether to allow view for group's resources")
+
+    class Meta:
+        unique_together = ('community', 'group')
+
+    def __str__(self):
+        """ Return printed depiction for debugging """
+        return str.format("<community '{}' (id={}) holds {} ({})" +
+                          " over group '{}' (id={})" +
+                          " via grantor '{}' (id={})>",
+                          str(self.community.name), str(self.community.id),
+                          PrivilegeCodes.NAMES[self.privilege],
+                          str(self.privilege),
+                          str(self.group.name), str(self.group.id),
+                          str(self.grantor.username), str(self.grantor.id))
+
+    @classmethod
+    def share(cls, **kwargs):
+        """
+        Share a community with a group and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param group: source group to share
+        :param community: target community with which to share
+        :param privilege: privilege 1-4.
+        :param grantor: user who requested privilege.
+
+        Usage:
+            GroupCommunityPrivilege.share(group={X}, community={Y}, privilege={Z}, grantor={W}
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert 'privilege' in kwargs
+            assert \
+                kwargs['privilege'] >= PrivilegeCodes.OWNER and \
+                kwargs['privilege'] <= PrivilegeCodes.NONE
+            assert len(kwargs) == 4
+        cls.update(**kwargs)
+        GroupCommunityProvenance.update(**kwargs)
+
+    @classmethod
+    def unshare(cls, **kwargs):
+        """
+        Unshare a group with a community and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param group: source group to share
+        :param community: target community with which to unshare
+        :param grantor: user who requested privilege.
+
+        Usage:
+            GroupCommunityPrivilege.unshare(group={X}, user={Y}, grantor={W})
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        Use UserAccess.unshare_group_with_community instead.
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 3
+        cls.update(privilege=PrivilegeCodes.NONE, **kwargs)
+        GroupCommunityProvenance.update(privilege=PrivilegeCodes.NONE, **kwargs)
+
+    @classmethod
+    def undo_share(cls, **kwargs):
+        """
+        Undo a share a group with a community and update provenance
+
+        ***This completely bypasses access control*** but keeps provenance in sync.
+
+        :param group: source group to undo
+        :param community: target community with which to undo share
+        :param grantor: user who requested privilege.
+
+        Usage:
+            GroupCommunityPrivilege.undo_share(community={X}, group={Y}, grantor={W})
+
+        In practice:
+
+        The "undo" operation is independent of the privileges a user currently holds.
+        Suppose -- for example -- that a user holds CHANGE, grants that to another user,
+        and then loses CHANGE. The undo of the other user is still possible, even though the
+        original user no longer has the privilege.
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'group' in kwargs
+            assert isinstance(kwargs['group'], Group)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 3
+        grantor = kwargs['grantor']
+        del kwargs['grantor']
+        # undo in provenance model; add a record that reinstates previous privilege.
+        GroupCommunityProvenance.undo_share(grantor=grantor, **kwargs)
+        # read that record and post to privilege table.
+        r = GroupCommunityProvenance.get_current_record(**kwargs)
+        cls.update(community=r.community, group=r.group, privilege=r.privilege, grantor=r.grantor)
+
+    @classmethod
+    def get_undo_groups(cls, **kwargs):
+        """ Get a set of groups for which a grantor can undo privilege
+
+        :param community: community to check
+        :param grantor: user that will undo privilege
+
+        Important: this does not guard against removing a single owner.
+
+        **This is a system routine** that should not be called directly by developers!
+        """
+        if __debug__:
+            assert 'community' in kwargs
+            assert isinstance(kwargs['community'], Community)
+            assert 'grantor' in kwargs
+            assert isinstance(kwargs['grantor'], User)
+            assert len(kwargs) == 2
+        return GroupCommunityProvenance.get_undo_groups(**kwargs)
+
+
+class UserCommunityProvenance(ProvenanceBase):
+    """
+    Provenance of privileges of a user over a community
+
+    Having any privilege over a community is synonymous with membership.
+
+    This is an append-only ledger of user privilege that serves as complete provenance
+    of access changes.  At any time, one privilege applies to each grantee and group.
+    This is the privilege with the latest start date.  For performance reasons, this
+    information is cached in a separate table UserCommunityPrivilege.
+
+    To undo a privilege, one appends a record to this table with PrivilegeCodes.NONE.
+    This is indistinguishable from having no record at all.  Thus, this provides a
+    complete time-based journal of what privilege was in effect when.
+
+    An "undone" field allows one-step undo but prohibits further undo.
+
+    """
+    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
+                                    editable=False,
+                                    default=PrivilegeCodes.VIEW)
+
+    start = models.DateTimeField(editable=False, auto_now_add=True)
+
+    community = models.ForeignKey(Community,
+                                  null=False,
+                                  editable=False,
+                                  related_name='c2ucq',
+                                  help_text='community to be granted privilege')
+
+    user = models.ForeignKey(User,
+                             null=False,
+                             editable=False,
+                             related_name='u2ucq',
+                             help_text='user to which privilege applies')
+
+    grantor = models.ForeignKey(User,
+                                null=True,
+                                editable=False,
+                                related_name='x2ucq',
+                                help_text='grantor of privilege')
+
+    undone = models.BooleanField(editable=False, default=False)
+
+    class Meta:
+        unique_together = ('community', 'user', 'start')
+
+    @property
+    def grantee(self):
+        """ make printing of privilege records work properly in superclass"""
+        return self.community
+
+    @property
+    def entity(self):
+        """ make printing of privilege records work properly in superclass"""
+        return self.user
+
+    @classmethod
+    def get_undo_users(cls, community, grantor):
+        """
+        get the users for which a specific grantee can undo privilege
+
+        :param community: community to check.
+        :param grantor: user that would initiate the rollback.
+
+        Note: undo is somewhat independent of access control. A user need not hold
+        a privilege to undo a privilege that was previously granted.
+        """
+
+        if __debug__:
+            assert isinstance(grantor, User)
+            assert isinstance(community, Community)
+
+        # users are those last granted a privilege over the entity by the grantor
+        # This syntax is curious due to undesirable semantics of .exclude.
+        # All conditions on the filter must be specified in the same filter statement.
+        selected = User.objects.filter(u2ucq__community=community)\
+                               .annotate(start=Max('c2ucq__start'))\
+                               .filter(u2ucq__start=F('start'),
+                                       u2ucq__grantor=grantor,
+                                       u2ucq__undone=False)
+        return selected
+
+    @classmethod
+    def update(cls, user, community, privilege, grantor, undone=False):
+        """
+        Add a provenance record to the provenance chain.
+
+        :param user: shared user
+        :param community: community with which user is shared.
+        :param grantor: user that would initiate the rollback.
+
+        This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
+        """
+
+        if __debug__:
+            assert isinstance(user, User)
+            assert isinstance(community, Community)
+            assert grantor is None or isinstance(grantor, User)
+            assert privilege >= PrivilegeCodes.OWNER and privilege <= PrivilegeCodes.NONE
+
+        super(UserCommunityProvenance, cls).update(user=user,
+                                                   community=community,
+                                                   privilege=privilege,
+                                                   grantor=grantor,
+                                                   undone=undone)
+
+
+class GroupCommunityProvenance(ProvenanceBase):
+    """
+    Provenance of privileges of a group over a community
+
+    Having any privilege over a community is synonymous with membership.
+
+    This is an append-only ledger of group privilege that serves as complete provenance
+    of access changes.  At any time, one privilege applies to each grantee and group.
+    This is the privilege with the latest start date.  For performance reasons, this
+    information is cached in a separate table GroupCommunityPrivilege.
+
+    To undo a privilege, one appends a record to this table with PrivilegeCodes.NONE.
+    This is indistinguishable from having no record at all.  Thus, this provides a
+    complete time-based journal of what privilege was in effect when.
+
+    An "undone" field allows one-step undo but prohibits further undo.
+
+    """
+    privilege = models.IntegerField(choices=PrivilegeCodes.CHOICES,
+                                    editable=False,
+                                    default=PrivilegeCodes.VIEW)
+
+    start = models.DateTimeField(editable=False, auto_now_add=True)
+
+    community = models.ForeignKey(Community,
+                                  null=False,
+                                  editable=False,
+                                  related_name='c2gcq',
+                                  help_text='group to be granted privilege')
+
+    group = models.ForeignKey(Group,
+                              null=False,
+                              editable=False,
+                              related_name='g2gcq',
+                              help_text='group to which privilege applies')
+
+    grantor = models.ForeignKey(User,
+                                null=True,
+                                editable=False,
+                                related_name='x2gcq',
+                                help_text='grantor of privilege')
+
+    undone = models.BooleanField(editable=False, default=False)
+
+    class Meta:
+        unique_together = ('community', 'group', 'start')
+
+    @property
+    def grantee(self):
+        """ make printing of privilege records work properly in superclass"""
+        return self.community
+
+    @property
+    def entity(self):
+        """ make printing of privilege records work properly in superclass"""
+        return self.group
+
+    @classmethod
+    def get_undo_groups(cls, community, grantor):
+        """
+        get the groups for which a specific grantee can undo privilege
+
+        :param community: community to check.
+        :param grantor: user that would initiate the rollback.
+
+        Note: undo is somewhat independent of access control. A user need not hold
+        a privilege to undo a privilege that was previously granted.
+        """
+
+        if __debug__:
+            assert isinstance(grantor, User)
+            assert isinstance(community, Community)
+
+        # users are those last granted a privilege over the entity by the grantor
+        # This syntax is curious due to undesirable semantics of .exclude.
+        # All conditions on the filter must be specified in the same filter statement.
+        selected = Group.objects.filter(g2gcq__community=community)\
+                               .annotate(start=Max('g2gcq__start'))\
+                               .filter(g2gcq__start=F('start'),
+                                       g2gcq__grantor=grantor,
+                                       g2gcq__undone=False)
+        return selected
+
+    @classmethod
+    def update(cls, group, community, privilege, grantor, undone=False):
+        """
+        Add a provenance record to the provenance chain.
+
+        :param group: shared group
+        :param community: community with which group is shared.
+        :param grantor: user that would initiate the rollback.
+
+        This is just a wrapper around ProvenanceBase.update that makes parameters explicit.
+        """
+
+        if __debug__:
+            assert isinstance(group, Group)
+            assert isinstance(community, Community)
+            assert grantor is None or isinstance(grantor, User)
+            assert privilege >= PrivilegeCodes.OWNER and privilege <= PrivilegeCodes.NONE
+
+        super(GroupCommunityProvenance, cls).update(group=group,
+                                                    community=community,
+                                                    privilege=privilege,
+                                                    grantor=grantor,
+                                                    undone=undone)
