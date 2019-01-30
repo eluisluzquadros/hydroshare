@@ -654,5 +654,3 @@ class TestCommunities(MockIRODSTestCaseMixin, TestCase):
             pprint("VIEW")
             pprint(group)
             pprint(resources)
-
-        self.assertTrue(False)
