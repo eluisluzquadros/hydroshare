@@ -63,7 +63,7 @@ class GeoFeatureFileMetaData(GeographicFeatureMetaDataMixin, AbstractFileMetaDat
         return template.render(context)
 
     def _get_field_informations_html(self):
-        root_div = div(cls="col-md-12 col-sm-12 pull-left", style="margin-bottom:40px;")
+        root_div = div(cls="content-block")
         with root_div:
             legend('Field Information')
             with table(style="width: 100%;"):
@@ -85,11 +85,11 @@ class GeoFeatureFileMetaData(GeographicFeatureMetaDataMixin, AbstractFileMetaDat
         root_div = div("{% load crispy_forms_tags %}")
         with root_div:
             super(GeoFeatureFileMetaData, self).get_html_forms()
-            with div(cls="col-lg-6 col-xs-12"):
+            with div(cls="content-block"):
                 div("{% crispy geometry_information_form %}")
-            with div(cls="col-lg-6 col-xs-12 col-md-pull-6", style="margin-top:40px;"):
+            with div(cls="content-block"):
                 div("{% crispy spatial_coverage_form %}")
-            with div(cls="col-lg-6 col-xs-12"):
+            with div(cls="content-block"):
                 div("{% crispy original_coverage_form %}")
 
         template = Template(root_div.render())
@@ -400,8 +400,12 @@ def extract_metadata_and_files(resource, res_file, file_type=True):
     temp_dir = os.path.dirname(shape_files[0])
     if not _check_if_shape_files(shape_files):
         if res_file.extension.lower() == '.shp':
-            err_msg = "One or more dependent shape files are missing at location: " \
-                      "{folder_path} or one or more files are not of shape file type."
+            err_msg = "There was a problem parsing the component files associated with " \
+                      "{folder_path} as a geographic shapefile. This may be because a component " \
+                      "file is corrupt or missing. The .shp, .shx, and .dbf shapefile component " \
+                      "files are required. Other shapefile component files  " \
+                      "(.cpg, .prj, .sbn, .sbx, .xml, .fbn, .fbx, .ain, .aih, .atx, .ixs, .mxs) " \
+                      "should also be added where available."
             err_msg = err_msg.format(folder_path=res_file.short_path)
         else:
             err_msg = "One or more dependent shape files are missing in the selected zip file " \

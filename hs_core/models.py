@@ -8,6 +8,7 @@ from uuid import uuid4
 from languages_iso import languages as iso_languages
 from dateutil import parser
 from lxml import etree
+from markdown import markdown
 
 from django_irods.icommands import SessionException
 
@@ -17,7 +18,7 @@ from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.auth.models import User, Group
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.db.models.signals import post_save
 from django.db import transaction
 from django.dispatch import receiver
@@ -1357,7 +1358,7 @@ class Coverage(AbstractMetaDataElement):
         This function should be used for displaying one spatial coverage element
         or one temporal coverage element
         """
-        root_div = div(cls="col-xs-6 col-sm-6", style="margin-bottom:40px;")
+        root_div = div(cls='content-block')
 
         def get_th(heading_name):
             return th(heading_name, cls="text-muted")
@@ -1365,16 +1366,11 @@ class Coverage(AbstractMetaDataElement):
         with root_div:
             if self.type == 'box' or self.type == 'point':
                 legend('Spatial Coverage')
-                with table(cls='custom-table'):
-                    with tbody():
-                        with tr():
-                            get_th('Coordinate Reference System')
-                            td(self.value['projection'])
-                        with tr():
-                            get_th('Coordinate Reference System Unit')
-                            td(self.value['units'])
-
-                h4('Extent')
+                div('Coordinate Reference System', cls='text-muted')
+                div(self.value['projection'])
+                div('Coordinate Reference System Unit', cls='text-muted space-top')
+                div(self.value['units'])
+                h4('Extent', cls='space-top')
                 with table(cls='custom-table'):
                     if self.type == 'box':
                         with tbody():
@@ -1667,6 +1663,19 @@ class AbstractResource(ResourcePermissionsMixin, ResourceIRODSMixin):
     # for internal use only
     # this field WILL NOT get recorded in bag and SHOULD NEVER be used for storing metadata
     extra_data = HStoreField(default={})
+
+    # for tracking number of times resource and its files have been downloaded
+    download_count = models.PositiveIntegerField(default=0)
+    # for tracking number of times resource has been viewed
+    view_count = models.PositiveIntegerField(default=0)
+
+    def update_view_count(self, request):
+        self.view_count += 1
+        self.save()
+
+    def update_download_count(self):
+        self.download_count += 1
+        self.save()
 
     # definition of resource logic
     @property
@@ -2253,14 +2262,61 @@ class AbstractResource(ResourcePermissionsMixin, ResourceIRODSMixin):
             return True
 
     @property
+    def readme_file(self):
+        """Returns a resource file that is at the root with a file name of either
+        'readme.txt' or 'readme.md' (filename is case insensitive). If no such file then None
+        is returned. If both files exist then resource file for readme.md is returned"""
+
+        res_files_at_root = self.files.filter(file_folder=None)
+        readme_txt_file = None
+        readme_md_file = None
+        for res_file in res_files_at_root:
+            if res_file.file_name.lower() == 'readme.md':
+                readme_md_file = res_file
+            elif res_file.file_name.lower() == 'readme.txt':
+                readme_txt_file = res_file
+            if readme_md_file is not None:
+                break
+
+        if readme_md_file is not None:
+            return readme_md_file
+        else:
+            return readme_txt_file
+
+    def get_readme_file_content(self):
+        """Gets the content of the readme file. If both a readme.md and a readme.txt file exist,
+        then the content of the readme.md file is returned, othewise None
+        """
+        readme_file = self.readme_file
+        if readme_file is not None:
+            if readme_file.extension.lower() == '.md':
+                return {'content': markdown(readme_file.read().decode('utf-8')),
+                        'file_name': readme_file.file_name, 'file_type': 'md'}
+            else:
+                return {'content': readme_file.read(), 'file_name': readme_file.file_name}
+        return readme_file
+
+    @property
     def logical_files(self):
-        """Get list of logical files for resource."""
+        """Get a list of logical files for resource."""
         logical_files_list = []
         for res_file in self.files.all():
             if res_file.logical_file is not None:
                 if res_file.logical_file not in logical_files_list:
                     logical_files_list.append(res_file.logical_file)
         return logical_files_list
+
+    @property
+    def aggregation_types(self):
+        """Gets a list of all aggregation types that currently exist in this resource"""
+        aggr_types = []
+        aggr_type_names = []
+        for lf in self.logical_files:
+            if lf.type_name not in aggr_type_names:
+                aggr_type_names.append(lf.type_name)
+                aggr_type = lf.get_aggregation_display_name().split(":")[0]
+                aggr_types.append(aggr_type)
+        return aggr_types
 
     @property
     def non_logical_files(self):
@@ -2493,6 +2549,7 @@ class ResourceFile(ResourceFileIRODSMixin):
                                                   related_name="files")
     logical_file_content_object = GenericForeignKey('logical_file_content_type',
                                                     'logical_file_object_id')
+    _size = models.BigIntegerField(default=-1)
 
     def __str__(self):
         """Return resource filename or federated resource filename for string representation."""
@@ -2619,30 +2676,13 @@ class ResourceFile(ResourceFileIRODSMixin):
         """Return content_object representing the resource from a resource file."""
         return self.content_object
 
-    # TODO: write unit test
     @property
     def size(self):
-        """Return file size for federated or non-federated files."""
-        if self.resource.resource_federation_path:
-            if __debug__:
-                assert self.resource_file.name is None or \
-                    self.resource_file.name == ''
-            try:
-                return self.fed_resource_file.size
-            except SessionException:
-                logger = logging.getLogger(__name__)
-                logger.warn("file {} not found".format(self.storage_path))
-                return 0
-        else:
-            if __debug__:
-                assert self.fed_resource_file.name is None or \
-                    self.fed_resource_file.name == ''
-            try:
-                return self.resource_file.size
-            except SessionException:
-                logger = logging.getLogger(__name__)
-                logger.warn("file {} not found".format(self.storage_path))
-                return 0
+        """Return file size of the file.
+        Calculates the size first if it has not been calculated yet."""
+        if self._size < 0:
+            self.calculate_size()
+        return self._size
 
     # TODO: write unit test
     @property
@@ -2690,6 +2730,30 @@ class ResourceFile(ResourceFileIRODSMixin):
                 assert self.fed_resource_file.name is None or \
                     self.fed_resource_file.name == ''
             return self.resource_file.name
+
+    def calculate_size(self):
+        """Reads the file size and saves to the DB"""
+        if self.resource.resource_federation_path:
+            if __debug__:
+                assert self.resource_file.name is None or \
+                    self.resource_file.name == ''
+            try:
+                self._size = self.fed_resource_file.size
+            except SessionException:
+                logger = logging.getLogger(__name__)
+                logger.warn("file {} not found".format(self.storage_path))
+                self._size = 0
+        else:
+            if __debug__:
+                assert self.fed_resource_file.name is None or \
+                    self.fed_resource_file.name == ''
+            try:
+                self._size = self.resource_file.size
+            except SessionException:
+                logger = logging.getLogger(__name__)
+                logger.warn("file {} not found".format(self.storage_path))
+                self._size = 0
+        self.save()
 
     # ResourceFile API handles file operations
     def set_storage_path(self, path, test_exists=True):
@@ -3292,9 +3356,17 @@ class BaseResource(Page, AbstractResource):
 
         Raises SessionException if iRODS fails.
         """
+        # trigger file size read for files that haven't been set yet
+        for f in self.files.filter(_size__lt=0):
+            f.calculate_size()
         # compute the total file size for the resource
-        f_sizes = [f.size for f in self.files.all()]
-        return sum(f_sizes)
+        res_size_dict = self.files.aggregate(Sum('_size'))
+        # handle case if no resource files
+        res_size = res_size_dict['_size__sum']
+        if not res_size:
+            # in case of no files
+            res_size = 0
+        return res_size
 
     @property
     def verbose_name(self):
@@ -3525,7 +3597,7 @@ class CoreMetaData(models.Model):
             parsed_metadata.append({"language": {"code": metadata.pop('language')}})
 
         if 'rights' in keys_to_update:
-            parsed_metadata.append({"rights": {"statement": metadata.pop('rights')}})
+            parsed_metadata.append({"rights": metadata.pop('rights')})
 
         if 'sources' in keys_to_update:
             for source in metadata.pop('sources'):
