@@ -616,6 +616,7 @@ def get_my_resources_list(request):
     # we won't hit the DB for each resource to know if it's status is public/private/discoverable
     # etc
     resource_collection = resource_collection.select_related('raccess')
+    resource_collection = resource_collection.prefetch_related('content_type')
     return resource_collection
 
 

@@ -250,7 +250,7 @@
                             </td>
                             {# Title #}
                             <td>
-                                <strong><a href="{{ res.get_absolute_url }}">{{ res.metadata.title }}</a>
+                                <strong><a href="{{ res.get_absolute_url }}">{{ res.content_type.title }}</a>
                                 </strong>
                             </td>
                             {# First Author #}
@@ -263,13 +263,13 @@
                             <td>{{ res.last_updated|date:"M d, Y" }} at {{ res.last_updated|time }}</td>
                             <td>
                                 {# Here we are hitting the database once for each resource that is listed #}
-                                {% for kw in res.metadata.subjects.all %}
+                                {% for kw in res.content_type.subjects.all %}
                                    {% if forloop.counter0 > 0 %},{% endif %}{{ kw.value}}
                                 {% endfor %}
                             </td>
                             <td>
                                 {# Here we are hitting the database once for each resource that is listed #}
-                                {% for creator in res.metadata.creators.all %}
+                                {% for creator in res.content_type.creators.all %}
                                     {% if forloop.counter0 != 0 %}<span> · </span>{% endif %}
                                     {% if creator.description %}
                                         <a href="{{ creator.description }}">{{ creator.name }}</a>
