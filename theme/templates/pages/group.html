@@ -58,21 +58,21 @@
                 <p>{{ group.gaccess.description|linebreaks }}</p>
             </div>
 
-            {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer %}
+            {% if is_group_owner or is_group_editor or is_group_viewer %}
                 <div class="col-sm-2">
                     {% if group.gaccess.active %}
-                        {% if profile_user.is_group_owner or profile_user.is_group_editor %}
+                        {% if is_group_owner or is_group_editor %}
                             <a href="#" id="btn-edit-group" data-toggle="modal" data-target="#edit-group-dialog">
                                 <span class="glyphicon glyphicon-pencil icon-blue icon-button" data-toggle="tooltip" data-placement="auto" title="Edit Group"></span></a>
                         {% endif %}
                     {% endif %}
                     <a href="#" id="btn-leave-group" data-toggle="modal" data-target="#leave-group-dialog">
                         <span class="glyphicon glyphicon-hand-left btn-remove icon-button" data-toggle="tooltip" data-placement="auto" title="Leave Group"></span></a>
-                    {% if profile_user.is_group_owner and group.gaccess.active %}
+                    {% if is_group_owner and group.gaccess.active %}
                         <a href="#" id="btn-delete-group" data-toggle="modal" data-target="#delete-group-dialog">
                         <span class="glyphicon glyphicon-trash icon-button btn-remove" data-toggle="tooltip" data-placement="auto" title="Delete Group"></span></a>
                     {% endif %}
-                    {% if profile_user.is_group_owner and not group.gaccess.active %}
+                    {% if is_group_owner and not group.gaccess.active %}
                         <a href="{% url "restore_user_group" group.id %}">
                         <span class="glyphicon glyphicon-retweet icon-button" data-toggle="tooltip" data-placement="auto" title="Restore Group"></span></a>
                     {% endif %}
@@ -86,14 +86,14 @@
                 <li role="presentation" class="active">
                     <a href="#overview" aria-controls="overview" role="tab"
                        data-toggle="tab"><i class="glyphicon glyphicon-list-alt"></i> Overview</a></li>
-                {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer %}
+                {% if is_group_owner or is_group_editor or is_group_viewer %}
                 <li role="presentation">
                     <a href="#resources" aria-controls="resources" role="tab" data-toggle="tab">
                         <i class="glyphicon glyphicon-file"></i> Resources</a>
                 </li>
                 {% endif %}
 
-                {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer or group.gaccess.public%}
+                {% if is_group_owner or is_group_editor or is_group_viewer or group.gaccess.public%}
                 <li role="presentation">
                     <a href="#members" aria-controls="members" role="tab" data-toggle="tab">
                         <i class="glyphicon glyphicon-user"></i> Members</a>
@@ -106,7 +106,7 @@
                 <div role="tabpanel" class="tab-pane fade in active" id="overview">
                     <div class="row">
                         <div class="col-sm-12">
-                        {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer %}
+                        {% if is_group_owner or is_group_editor or is_group_viewer %}
                             <h4>Recent Activity</h4>
                             {% if group_resources %}
                                 {% for res in group_resources %}
@@ -187,7 +187,7 @@
                 <div role="tabpanel" class="tab-pane fade" id="members">
                     <div class="row">
                         <div class="col-sm-12 col-md-3">
-                            {% if profile_user.is_group_owner %}
+                            {% if is_group_owner %}
                                 {% if group.gaccess.active %}
                                     <div class="text-center">
                                         <a href="#" class="btn btn-primary" role="button" data-toggle="modal"
@@ -236,7 +236,7 @@
                                         </td>
 
                                         <td>
-                                            {% if profile_user.is_group_owner and group.gaccess.active or profile_user.is_group_editor and group.gaccess.active %}
+                                            {% if is_group_owner and group.gaccess.active or is_group_editor and group.gaccess.active %}
                                                 <div class="dropdown custom-dropdown">
                                                     <button class="btn btn-default dropdown-toggle" type="button"
                                                             id="roleDropDown-{{ member.id }}" data-toggle="dropdown"
@@ -335,7 +335,7 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if profile_user.is_group_owner and group.gaccess.active or profile_user.is_group_editor and group.gaccess.active %}
+                                            {% if is_group_owner and group.gaccess.active or is_group_editor and group.gaccess.active %}
                                             <div class="dropdown custom-dropdown">
                                                 <button class="btn btn-default dropdown-toggle" type="button"
                                                         id="roleDropDown-{{ member.id }}" data-toggle="dropdown"
@@ -397,7 +397,7 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if profile_user.is_group_owner or profile_user.is_group_editor %}
+                                            {% if is_group_owner or is_group_editor %}
                                                 <form action="/hsapi/_internal/act-on-group-membership-request/{{ pendingrequest.id }}/accept/">
                                                     {% csrf_token %}
                                                     <a href="#" class="btn btn-success btn-act-on-request"
@@ -410,7 +410,7 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if profile_user.is_group_owner or profile_user.is_group_editor %}
+                                            {% if is_group_owner or is_group_editor %}
                                                 <form action="/hsapi/_internal/act-on-group-membership-request/{{ pendingrequest.id }}/reject/">
                                                     {% csrf_token %}
                                                     <a href="#" class="btn btn-default btn-act-on-request"
@@ -439,7 +439,7 @@
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                {% if profile_user.is_group_owner or profile_user.is_group_editor %}
+                                                {% if is_group_owner or is_group_editor %}
                                                     <form action="/hsapi/_internal/act-on-group-membership-request/{{ pendingrequest.id }}/reject/">
                                                         {% csrf_token %}
                                                         <a href="#" class="btn btn-default btn-act-on-request">Cancel Invitation</a>
@@ -459,7 +459,7 @@
                     </div>
                 </div>
 
-                {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer %}
+                {% if is_group_owner or is_group_editor or is_group_viewer %}
                     <div role="tabpanel" class="tab-pane fade" id="resources">
                      <div class="row">
                         <div class="col-lg-2" id="facets">
@@ -659,7 +659,7 @@
         </div>
     </div>
 
-    {% if profile_user.is_group_owner or profile_user.is_group_editor or profile_user.is_group_viewer %}
+    {% if is_group_owner or is_group_editor or is_group_viewer %}
         <!-- Invite to Group Modal -->
         <div class="modal fade" id="invite-dialog" tabindex="-1" role="dialog"
              aria-labelledby="Invite">
@@ -744,7 +744,7 @@
         </div>
     {% endif %}
 
-    {% if profile_user.is_group_owner or profile_user.is_group_editor %}
+    {% if is_group_owner or is_group_editor %}
         <!-- Edit Group Modal -->
         <div class="modal fade" id="edit-group-dialog" tabindex="-1" role="dialog"
              aria-labelledby="Invite">
