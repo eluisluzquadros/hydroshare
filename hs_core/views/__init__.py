@@ -1838,6 +1838,7 @@ class CollaborateView(TemplateView):
         return super(CollaborateView, self).dispatch(*args, **kwargs)
 
     def get_context_data(self, **kwargs):
+        u = None
         if self.request.user:
             u = User.objects.get(pk=self.request.user.id)
         groups = Group.objects.filter(gaccess__active=True).exclude(name="Hydroshare Author")
