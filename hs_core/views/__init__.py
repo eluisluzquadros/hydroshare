@@ -1839,7 +1839,7 @@ class CollaborateView(TemplateView):
 
     def get_context_data(self, **kwargs):
         u = None
-        if self.request.user:
+        if self.request.user.is_authenticated:
             u = User.objects.get(pk=self.request.user.id)
         groups = Group.objects.filter(gaccess__active=True).exclude(name="Hydroshare Author")
         # for each group set group dynamic attributes
@@ -1853,7 +1853,7 @@ class CollaborateView(TemplateView):
                     g.join_request = g.gaccess.group_membership_requests.filter(request_from=u).first() or \
                                      g.gaccess.group_membership_requests.filter(invitation_to=u).first()
         return {
-            'profile_user': u,
+            'is_authenticated': self.request.user.is_authenticated,
             'groups': groups,
         }
 
