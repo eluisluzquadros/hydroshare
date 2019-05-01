@@ -1852,6 +1852,7 @@ class CollaborateView(TemplateView):
                     g.join_request = g.gaccess.group_membership_requests.filter(request_from=u).first() or \
                                      g.gaccess.group_membership_requests.filter(invitation_to=u).first()
         return {
+            'profile_user': u,
             'groups': groups,
         }
 

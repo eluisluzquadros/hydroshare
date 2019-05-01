@@ -155,7 +155,7 @@
                                                 </form>
                                             </div>
                                         </div>
-                                    {% else %}
+                                    {% elif profile_user %}
                                         <form id="join-{{ group.id }}" method="post"
                                               action="/hsapi/_internal/make-group-membership-request/{{ group.id }}/">
                                             {% csrf_token %}
