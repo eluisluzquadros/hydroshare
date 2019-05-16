@@ -163,7 +163,8 @@ $(document).ready(function () {
     });
 
     $("#hs-nav-bar .res-dropdown ul > li>  a").on("click", function () {
-        createResource($(this).attr("data-value"));
+        $('#submit-title-dialog').modal('show')
+        //createResource($(this).attr("data-value"));
     });
 
     function createResource(type) {
