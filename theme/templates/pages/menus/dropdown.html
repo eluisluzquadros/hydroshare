@@ -8,6 +8,20 @@
     <li {% if request.path == "/my-resources/" %}class="active"{% endif %} id="dropdown-menu-my-resources">
         <a href="/my-resources/">My Resources</a>
     </li>
+    <li {% if request.path == "/search/" %}class="active"{% endif %} id="dropdown-menu-search">
+        <a href="/search/">Discover</a>
+    </li>
+    <li {% if request.path == "/collaborate/" %}class="active"{% endif %} id="dropdown-menu-collaborate">
+        <a href="/collaborate/">Collaborate</a>
+    </li>
+    <li class="" id="dropdown-menu-https:--www.hydroshare.org-apps-">
+        <a href="https://www.hydroshare.org/apps/">Apps</a>
+    </li>
+    <li class="" id="dropdown-menu-https:--help.hydroshare.org">
+        <a href="http://help.hydroshare.org">Help</a>
+    </li>
+</ul>
+<ul class="nav navbar-nav navbar-right btn-primary" style="margin-right: 15px">
     <li class="dropdown res-dropdown">
         <a id="select-resource-type"
            {% if user.is_anonymous %}
@@ -85,18 +99,6 @@
             </li>
         </ul>
         {% endif %}
-    </li>
-    <li {% if request.path == "/search/" %}class="active"{% endif %} id="dropdown-menu-search">
-        <a href="/search/">Discover</a>
-    </li>
-    <li {% if request.path == "/collaborate/" %}class="active"{% endif %} id="dropdown-menu-collaborate">
-        <a href="/collaborate/">Collaborate</a>
-    </li>
-    <li class="" id="dropdown-menu-https:--www.hydroshare.org-apps-">
-        <a href="https://www.hydroshare.org/apps/">Apps</a>
-    </li>
-    <li class="" id="dropdown-menu-https:--help.hydroshare.org">
-        <a href="http://help.hydroshare.org">Help</a>
     </li>
 
     {% if not user.is_anonymous %}
