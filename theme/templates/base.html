@@ -222,7 +222,8 @@
         <div class="main-container">
             {% block main %}{% endblock %}
             {% block after_main %}{% endblock %}
-                </div>
+            {% include "pages/site-wide-modals.html" %}
+        </div>
     {% endblock %}
 
     <!-- Foooter
