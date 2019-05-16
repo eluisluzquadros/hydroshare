@@ -21,14 +21,12 @@
         <a href="http://help.hydroshare.org">Help</a>
     </li>
 </ul>
+
+{% if not user.is_anonymous %}
 <ul class="nav navbar-nav navbar-right btn-primary" style="margin-right: 15px">
     <li class="dropdown res-dropdown">
         <a id="select-resource-type"
-           {% if user.is_anonymous %}
-           href="/accounts/login/?next=/my-resources"
-           {% else %}
            href="#" data-toggle="dropdown"
-           {% endif %}
            class="dropdown-toggle"
            role="button" aria-haspopup="true" aria-expanded="false">Create
         </a>
@@ -100,7 +98,7 @@
         </ul>
         {% endif %}
     </li>
-
+{% endif %}
     {% if not user.is_anonymous %}
         <li class="visible-xs"><a href="/user/{{ user.id }}/">Profile</a></li>
     {% endif %}
